@@ -1,0 +1,198 @@
+---
+title: Browse Commands Overview
+description: CLI commands for browser automation and web scraping
+---
+
+The `browse` command provides headless browser automation powered by Playwright. It uses a persistent local Chromium daemon for fast, reliable web interaction.
+
+## Architecture
+
+The browse system uses a client-server architecture:
+
+- **CLI client**: Thin binary (~58MB) that sends commands via HTTP
+- **Server daemon**: Persistent Chromium process managed by Playwright
+- **State file**: `.gstack/browse.json` stores connection info
+- **Ref system**: Element selection via `@e` refs from accessibility tree
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  gstack                                                         │
+│                                                                 │
+│  browse goto https://example.com                                │
+│       │                                                         │
+│       ▼                                                         │
+│  ┌──────────┐    HTTP POST     ┌──────────────┐                │
+│  │ browse   │ ──────────────── │ Bun HTTP     │                │
+│  │ CLI      │  localhost:rand  │ server       │                │
+│  │          │  Bearer token    │              │                │
+│  │ compiled │ ◄──────────────  │  Playwright  │──── Chromium   │
+│  │ binary   │  plain text      │  API calls   │    (headless)  │
+│  └──────────┘                  └──────────────┘                │
+│   ~1ms startup                  persistent daemon               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Command Categories
+
+| Category | Commands | Description |
+|----------|----------|-------------|
+| **Navigation** | `goto`, `back`, `forward`, `reload`, `url` | Navigate between pages |
+| **Reading** | `text`, `html`, `links`, `forms`, `accessibility` | Extract content from pages |
+| **Interaction** | `click`, `fill`, `select`, `hover`, `type`, `press`, `scroll`, `wait`, `upload`, `viewport` | Interact with page elements |
+| **Inspection** | `js`, `eval`, `css`, `attrs`, `is`, `console`, `network`, `dialog`, `cookies`, `storage`, `perf` | Debug and verify behavior |
+| **Visual** | `screenshot`, `pdf`, `responsive`, `diff` | Capture visual output |
+| **Tabs** | `tabs`, `tab`, `newtab`, `closetab` | Manage multiple pages |
+
+## The Ref System
+
+The browse tool uses a ref-based element selection system:
+
+1. **Take a snapshot**: `snapshot -i` generates `@e` refs for interactive elements
+2. **Select elements**: Use `@e1`, `@e2`, etc. in commands like `click @e3`
+3. **No DOM mutation**: Refs are mapped to Playwright Locators, not injected into the page
+
+<CodeGroup>
+
+```bash Basic Workflow
+# Get interactive elements
+browse snapshot -i
+# Output:
+#   @e1 [button] "Submit"
+#   @e2 [link] "Learn More"
+#   @e3 [textbox] "Email"
+
+# Click using ref
+browse click @e1
+
+# Fill input using ref
+browse fill @e3 "user@example.com"
+```
+
+```bash CSS Selectors Still Work
+# You can also use traditional CSS selectors
+browse click "#submit-btn"
+browse fill "input[name='email']" "user@example.com"
+```
+
+</CodeGroup>
+
+## Snapshot Flags
+
+The `snapshot` command supports multiple flags to customize output:
+
+| Flag | Description |
+|------|-------------|
+| `-i, --interactive` | Show only interactive elements (buttons, links, inputs) |
+| `-c, --compact` | Remove empty structural nodes |
+| `-d, --depth <N>` | Limit tree depth (0 = root only) |
+| `-s, --selector <sel>` | Scope snapshot to CSS selector |
+| `-D, --diff` | Show diff vs. previous snapshot |
+| `-a, --annotate` | Generate screenshot with ref labels |
+| `-o, --output <path>` | Output path for annotated screenshot |
+| `-C, --cursor-interactive` | Include cursor-interactive elements as `@c` refs |
+
+<Tip>
+Use `snapshot -i` before interactions to get clean, actionable refs for buttons, links, and form fields.
+</Tip>
+
+## Performance
+
+| Metric | First Call | Subsequent Calls |
+|--------|-----------|------------------|
+| Startup time | ~3s (daemon launch) | ~100-200ms |
+| Context overhead | 0 tokens | 0 tokens |
+| Idle timeout | 30 minutes | Auto-restart on next call |
+
+<Note>
+The daemon auto-starts on first use and auto-stops after 30 minutes of inactivity. No manual management required.
+</Note>
+
+## Multi-Workspace Support
+
+Each workspace gets its own isolated browser instance:
+
+- Separate Chromium process per project
+- Independent cookies, tabs, and session state
+- State stored in `.gstack/browse.json` in project root
+- No port collisions (random ports 10000-60000)
+
+## Common Patterns
+
+### Form Automation
+
+```bash
+# Navigate to form
+browse goto https://example.com/login
+
+# Get interactive elements
+browse snapshot -i
+
+# Fill and submit
+browse fill @e1 "user@example.com"
+browse fill @e2 "password123"
+browse click @e3
+
+# Verify result
+browse wait ".success-message"
+browse text
+```
+
+### Content Extraction
+
+```bash
+# Navigate and extract
+browse goto https://news.example.com
+browse links  # Get all links
+browse text   # Get cleaned text
+browse forms  # Discover form fields
+```
+
+### Visual Testing
+
+```bash
+# Responsive screenshots
+browse goto https://example.com
+browse responsive /tmp/example  # Saves mobile, tablet, desktop
+
+# Compare environments
+browse diff https://staging.example.com https://prod.example.com
+```
+
+### Debugging
+
+```bash
+# Check console errors
+browse console --errors
+
+# Monitor network
+browse network
+
+# Inspect element state
+browse is visible "#modal"
+browse attrs ".btn-primary"
+browse css "h1" "color"
+```
+
+## Security
+
+- **Bearer token auth**: Random UUID per session, stored in `.gstack/browse.json` (chmod 600)
+- **Path validation**: File operations restricted to `/tmp` and current working directory
+- **Cookie redaction**: Sensitive cookies auto-redacted in logs
+- **No remote access**: Server only binds to localhost
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Navigation" icon="compass" href="/commands/browse/navigation">
+    Learn goto, back, forward, reload, url
+  </Card>
+  <Card title="Reading" icon="book-open" href="/commands/browse/reading">
+    Extract text, HTML, links, forms
+  </Card>
+  <Card title="Interaction" icon="hand-pointer" href="/commands/browse/interaction">
+    Click, fill, type, scroll, wait
+  </Card>
+  <Card title="Inspection" icon="magnifying-glass" href="/commands/browse/inspection">
+    Debug with js, console, network
+  </Card>
+</CardGroup>

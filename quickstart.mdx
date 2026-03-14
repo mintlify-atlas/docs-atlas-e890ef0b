@@ -1,80 +1,246 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get your first gstack workflow running in minutes"
 ---
 
-## Get started in three steps
+This quickstart gets you from zero to your first working workflow. You'll install gstack, run a basic browser command, and experience the power of having specialized AI modes at your fingertips.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and running
+- [Git](https://git-scm.com/) installed
+- [Bun](https://bun.sh/) v1.0 or higher installed
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+If you don't have Bun installed, run: `curl -fsSL https://bun.sh/install | bash`
+</Note>
+
+## Step 1: Install gstack
+
+Open Claude Code and paste this command. Claude will handle the installation:
+
+```markdown
+Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+```
+
+<Steps>
+  <Step title="Clone and build">
+    The setup script will:
+    - Clone the repository to `~/.claude/skills/gstack`
+    - Install dependencies with Bun
+    - Compile the browser binary (~58MB)
+    - Create symlinks for all skills
+  </Step>
+  
+  <Step title="Verify installation">
+    Claude will update your CLAUDE.md file and confirm the skills are available.
+  </Step>
+</Steps>
+
+<Info>
+Installation takes about 30 seconds. The compiled browser binary works on macOS and Linux (x64 and arm64).
+</Info>
+
+## Step 2: Try Your First Workflow
+
+Let's build a simple feature using multiple cognitive modes.
+
+### Plan Mode: CEO Review
+
+Start by describing what you want to build. Let Claude help you think bigger:
+
+```
+I want to add a photo upload feature to my listing app.
+
+/plan-ceo-review
+```
+
+Claude will pressure-test whether "photo upload" is the real feature, or if the real job is helping sellers create listings that actually sell. It might suggest:
+- Auto-identify the product from the photo
+- Pull specs and pricing comps from the web
+- Draft the title and description automatically
+- Suggest the best hero image
+
+### Engineering Mode: Lock in Architecture
+
+Once you've decided on the product direction, shift to engineering mode:
+
+```
+/plan-eng-review
+```
+
+Claude will provide:
+- Architecture diagrams
+- Data flow and state machines
+- Failure modes and edge cases
+- Test coverage matrix
+
+### Build the Feature
+
+Exit plan mode and start implementing. Claude will code the feature based on the technical plan.
+
+### Review Mode: Find Structural Bugs
+
+Before shipping, run a paranoid review:
+
+```
+/review
+```
+
+Claude will look for:
+- Race conditions
+- N+1 queries
+- Trust boundaries
+- Missing indexes
+- Bad retry logic
+
+### Ship It
+
+Once the review is clean, ship in one command:
+
+```
+/ship
+```
+
+This will:
+- Sync with main
+- Run tests
+- Resolve any Greptile reviews
+- Push the branch
+- Create a PR
+
+## Step 3: Test with Browser Automation
+
+Now let's test your feature with the headless browser.
+
+### Basic Navigation
+
+```
+You: /browse
+
+Claude: Browser session started.
+
+You: browse goto http://localhost:3000
+```
+
+### Get Interactive Elements
+
+Use snapshots to see what you can interact with:
+
+```
+You: browse snapshot -i
+
+Claude: [Returns accessibility tree with @e1, @e2, @e3 refs]
+
+You: browse click @e5
+     browse fill @e2 "test@example.com"
+     browse screenshot /tmp/form.png
+```
+
+### QA Testing
+
+Run a full QA pass on your feature:
+
+```
+/qa
+```
+
+Claude will:
+1. Analyze your git diff
+2. Identify affected routes
+3. Test each page automatically
+4. Generate a health score report
+
+<Tip>
+For authenticated testing, first run `/setup-browser-cookies` to import your real browser sessions. Then `/qa` can test pages behind login.
+</Tip>
+
+## Step 4: Run a Retrospective
+
+At the end of the week, analyze your shipping velocity:
+
+```
+/retro
+```
+
+You'll get:
+- Commits, LOC, and test ratio
+- Peak coding hours
+- Biggest ships of the week
+- Team member breakdown with praise and growth opportunities
+- Shipping streaks
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand how gstack's cognitive modes work
+  </Card>
+  <Card title="Skills Reference" icon="code" href="/skills/plan-ceo-review">
+    Deep dive into each workflow skill
+  </Card>
+  <Card title="Browse Commands" icon="terminal" href="/commands/browse/overview">
+    Master the headless browser automation
+  </Card>
+  <Card title="Conductor Integration" icon="layer-group" href="/guides/conductor">
+    Run 10+ parallel Claude sessions
+  </Card>
+</CardGroup>
+
+## Common Workflows
+
+<AccordionGroup>
+  <Accordion title="Feature Development (Plan → Code → Review → Ship → QA)">
+    The complete cycle:
+    1. `/plan-ceo-review` - Validate the product direction
+    2. `/plan-eng-review` - Lock in architecture
+    3. Code the feature
+    4. `/review` - Find structural bugs
+    5. `/ship` - Automated release workflow
+    6. `/qa` - Test everything that changed
+  </Accordion>
+  
+  <Accordion title="Bug Fix (Review → Ship)">
+    For simple fixes:
+    1. Fix the bug
+    2. `/review` - Make sure you didn't introduce new issues
+    3. `/ship` - Push and create PR
+  </Accordion>
+  
+  <Accordion title="QA on Staging">
+    Test a deployed environment:
+    1. `/setup-browser-cookies staging.myapp.com`
+    2. `/qa https://staging.myapp.com --quick` - 30-second smoke test
+    3. Or `/qa https://staging.myapp.com` - Full systematic test
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<Accordion title="Skills not showing up?">
+  Run `cd ~/.claude/skills/gstack && ./setup` to rebuild symlinks.
+</Accordion>
+
+<Accordion title="Browser binary not found?">
+  Run `cd ~/.claude/skills/gstack && bun install && bun run build` to compile the browser.
+</Accordion>
+
+<Accordion title="Need help?">
+  Check the [Troubleshooting Guide](/guides/troubleshooting) for common issues and solutions.
+</Accordion>
+
+## What You've Learned
+
+You now know how to:
+- ✅ Install gstack for Claude Code
+- ✅ Use multiple cognitive modes for one feature
+- ✅ Test with the headless browser
+- ✅ Run automated QA passes
+- ✅ Ship with one command
+- ✅ Analyze your weekly velocity
+
+<Note>
+gstack is created by [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/). It's the exact setup used to ship 10K LOC/day and land 10 PRs a day.
 </Note>

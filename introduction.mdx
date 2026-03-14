@@ -1,0 +1,142 @@
+---
+title: Introduction
+description: Turn Claude Code from one generic assistant into a team of specialists you can summon on demand
+---
+
+**gstack turns Claude Code from one generic assistant into a team of specialists you can summon on demand.**
+
+Eight opinionated workflow skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
+
+## The Problem
+
+Without gstack, Claude Code works in one generic mode:
+
+- The agent takes your request literally — it never asks if you're building the right thing
+- It will implement exactly what you said, even when the real product is something bigger
+- "Review my PR" gives inconsistent depth every time
+- "Ship this" turns into a long back-and-forth about what to do
+- The agent can write code but can't see your app — it's half blind
+- You still do QA by hand: open browser, click around, check pages, squint at layouts
+
+## The Solution
+
+gstack gives you **explicit cognitive modes**. Instead of one mushy blend, you get specialized workflows:
+
+| Skill | Mode | What it does |
+|-------|------|-------------|
+| `/plan-ceo-review` | Founder / CEO | Rethink the problem. Find the 10-star product hiding inside the request. |
+| `/plan-eng-review` | Eng manager / tech lead | Lock in architecture, data flow, diagrams, edge cases, and tests. |
+| `/review` | Paranoid staff engineer | Find the bugs that pass CI but blow up in production. Triages Greptile review comments. |
+| `/ship` | Release engineer | Sync main, run tests, resolve Greptile reviews, push, open PR. For a ready branch, not for deciding what to build. |
+| `/browse` | QA engineer | Give the agent eyes. It logs in, clicks through your app, takes screenshots, catches breakage. Full QA pass in 60 seconds. |
+| `/qa` | QA lead | Systematic QA testing. On a feature branch, auto-analyzes your diff, identifies affected pages, and tests them. Also: full exploration, quick smoke test, regression mode. |
+| `/setup-browser-cookies` | Session manager | Import cookies from your real browser (Comet, Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages without logging in manually. |
+| `/retro` | Engineering manager | Team-aware retro: your deep-dive + per-person praise and growth opportunities for every contributor. |
+
+## Example: One Feature, Five Modes
+
+Here's how you might build a feature using multiple gstack modes:
+
+```bash
+You:   [enter plan mode, describe the feature]
+       I want to add seller photo upload to the listing app. Sellers
+       should be able to upload a photo of their item and we create
+       the listing from it.
+
+You:   /plan-ceo-review
+
+Claude: "Photo upload" is not the feature. The real job is helping sellers
+        create listings that actually sell. Here's what the 10-star version
+        looks like: auto-identify the product from the photo, pull specs and
+        pricing comps from the web, draft the title and description, suggest
+        the best hero image...
+
+You:   /plan-eng-review
+
+Claude: [Architecture diagram, state machine for upload → classify → enrich
+        → draft pipeline, async job boundaries, failure modes, test matrix]
+
+You:   [exit plan mode, implement the plan]
+
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo selection.
+        Trust boundary: pulling web data into draft generation creates
+        a prompt injection vector. Missing: orphan cleanup for failed uploads.
+
+You:   (fix the issues)
+
+You:   /ship
+
+Claude: [Syncs main, runs tests, pushes branch, opens PR — 6 tool calls, done]
+
+You:   /qa
+
+Claude: Analyzing branch diff... 8 files changed, 3 routes affected.
+        [Tests /listings/new, /listings/:id, /api/listings against localhost:3000]
+        All 3 routes working. Upload + enrichment flow passes end to end.
+
+You:   /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You:   /qa https://staging.myapp.com --quick
+
+Claude: [Smoke test: homepage + 5 pages, 30 seconds]
+        Health Score: 91/100. No critical issues. 1 medium: mobile nav overlap.
+```
+
+## Who This Is For
+
+You already use Claude Code heavily and want consistent, high-rigor workflows instead of one mushy generic mode. You want to tell the model what kind of brain to use right now — founder taste, engineering rigor, paranoid review, or fast execution.
+
+**This is not a prompt pack for beginners. It is an operating system for people who ship.**
+
+## How to Fly: 10 Sessions at Once
+
+gstack is powerful with one Claude Code session. It is transformative with ten.
+
+[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. That means you can have one session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more working on other branches. All at the same time.
+
+Each workspace gets its own isolated browser instance automatically — separate Chromium process, cookies, tabs, and logs stored in `.gstack/` inside each project root. No port collisions, no shared state, no configuration needed. `/browse` and `/qa` sessions never interfere with each other, even across ten parallel workspaces.
+
+**This is the setup I use. One person, ten parallel agents, each with the right cognitive mode for its task. That is not incremental improvement. That is a different way of building software.**
+
+## Core Architecture
+
+gstack is built on three core pieces:
+
+1. **Skill files** - Markdown prompts that give Claude specialized instructions for each workflow mode
+2. **Persistent browser** - A compiled binary (~58MB) that runs a long-lived Chromium daemon for sub-second browser automation
+3. **Integration with Claude Code** - Skills register as slash commands and use Claude's tool system for execution
+
+<Note>
+Everything lives inside `.claude/`. Nothing touches your PATH or runs in the background.
+</Note>
+
+## What Gets Installed
+
+When you install gstack, you get:
+
+- Skill files (Markdown prompts) in `~/.claude/skills/gstack/` (or `.claude/skills/gstack/` for project installs)
+- Symlinks at `~/.claude/skills/browse`, `~/.claude/skills/qa`, `~/.claude/skills/review`, etc. pointing into the gstack directory
+- Browser binary at `browse/dist/browse` (~58MB, gitignored)
+- `node_modules/` (gitignored)
+- `/retro` saves JSON snapshots to `.context/retros/` in your project for trend tracking
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install gstack on your machine and in your projects
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get to your first working workflow in 5 minutes
+  </Card>
+</CardGroup>
+
+---
+
+<Info>
+Created by [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/).
+</Info>

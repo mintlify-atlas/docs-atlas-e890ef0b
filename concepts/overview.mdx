@@ -1,0 +1,196 @@
+---
+title: Overview
+description: High-level overview of gstack's architecture and design philosophy
+---
+
+## What is gstack?
+
+gstack transforms Claude Code from a single generic assistant into a team of specialized agents, each with a distinct cognitive mode optimized for different phases of software development.
+
+### The Core Insight
+
+Planning is not review. Review is not shipping. Founder taste is not engineering rigor. **Blurring all of these together produces mediocre results.** gstack provides explicit cognitive gears:
+
+- **CEO Mode** (`/plan-ceo-review`) — Founder taste, user empathy, 10-star product thinking
+- **Eng Manager Mode** (`/plan-eng-review`) — Technical architecture, system boundaries, diagrams
+- **Paranoid Staff Engineer** (`/review`) — Find bugs that pass CI but fail in production
+- **Release Machine** (`/ship`) — Automated release hygiene, no friction
+- **QA Engineer** (`/browse`, `/qa`) — Browser automation, visual testing, end-to-end flows
+
+Each mode is delivered as a **skill** — a Markdown file containing specialized prompts and workflows that reshape Claude's behavior for that specific task.
+
+<Note>
+gstack is not a prompt pack for beginners. It's an operating system for people who ship.
+</Note>
+
+## Architecture at a Glance
+
+```
+gstack/
+├── browse/              ← Persistent browser daemon (Playwright + Bun)
+│   ├── src/            ← CLI + HTTP server + command handlers
+│   └── dist/browse     ← Compiled binary (~58MB)
+├── plan-ceo-review/    ← CEO/founder mode skill
+├── plan-eng-review/    ← Engineering manager mode skill
+├── review/             ← Code review skill (Greptile integration)
+├── ship/               ← Automated shipping workflow
+├── qa/                 ← Systematic QA testing skill
+├── retro/              ← Engineering retrospective skill
+└── setup-browser-cookies/ ← Cookie import for auth flows
+```
+
+### Two Architectural Layers
+
+**1. Workflow Skills (Pure Markdown)**
+
+Most skills are just Markdown files with specialized prompts. They reshape Claude's thinking for specific tasks:
+
+- No compilation required
+- No runtime dependencies
+- Pure cognitive mode switching
+- Examples: `/plan-ceo-review`, `/review`, `/ship`, `/retro`
+
+**2. Browser Automation (Compiled Binary)**
+
+The `/browse` and `/qa` skills need real browser capabilities, so they include a compiled binary that manages a persistent Chromium daemon:
+
+- Bun-compiled single executable (~58MB)
+- HTTP server + Playwright for browser control
+- Sub-second latency after first launch
+- Persistent cookies, tabs, and localStorage
+
+<Info>
+**Why the hybrid approach?** Markdown skills are zero-dependency and instant to load. The browser binary is only needed when the agent needs "eyes" on a live URL — which most workflow tasks don't require.
+</Info>
+
+## Key Design Principles
+
+### 1. Structurally Sound Documentation
+
+SKILL.md files are **generated** from templates using source code metadata. This prevents docs from drifting:
+
+```
+SKILL.md.tmpl          (human-written workflows + placeholders)
+     ↓
+gen-skill-docs.ts      (reads commands.ts metadata)
+     ↓
+SKILL.md               (committed, auto-generated sections)
+```
+
+If a command exists in code, it appears in docs. If it doesn't exist, it can't appear. See [SKILL.md Template System](/concepts/architecture#skillmd-template-system) for details.
+
+### 2. AI-First Error Messages
+
+Every error message is designed for AI agents, not humans:
+
+**Bad:**
+```
+TimeoutError: locator.click: Timeout 30000ms exceeded
+```
+
+**Good:**
+```
+Element not found or not interactable within timeout.
+Check your selector or run 'snapshot' for fresh refs.
+```
+
+The agent should be able to read the error and know what to do next without human intervention.
+
+### 3. Zero-Configuration Multi-Workspace
+
+Each Conductor workspace gets its own isolated browser instance:
+
+- Separate Chromium process per project
+- Random port allocation (10000-60000)
+- State stored in `.gstack/` inside each project root
+- No port collisions, no shared state, no configuration needed
+
+### 4. Security by Design
+
+- Localhost-only HTTP binding (never `0.0.0.0`)
+- Bearer token auth (random UUID per session)
+- State file mode `0o600` (owner-only read)
+- Cookie decryption requires macOS Keychain approval
+- No cookie values in logs (only metadata)
+
+See [Security Model](/concepts/architecture#security-model) for full details.
+
+## Development Workflow Example
+
+Here's how the different modes fit together in a real feature development cycle:
+
+```bash
+# 1. CEO Mode: What's the 10-star version of this feature?
+User: /plan-ceo-review
+Claude: [Challenges assumptions, explores bigger vision]
+
+# 2. Eng Manager Mode: Make it buildable
+User: /plan-eng-review
+Claude: [Architecture diagram, state machines, test matrix]
+
+# 3. Implementation (exit plan mode, write code)
+User: [implement the feature]
+
+# 4. Paranoid Review: What can still break?
+User: /review
+Claude: [Finds race conditions, N+1 queries, trust boundaries]
+
+# 5. Automated Ship: Get it merged
+User: /ship
+Claude: [Syncs main, runs tests, pushes, creates PR]
+
+# 6. QA Testing: Does it actually work?
+User: /qa
+Claude: [Analyzes diff, tests affected routes, screenshots]
+```
+
+Each mode is **stateless** — you can invoke any skill at any time. The agent doesn't "remember" what mode it was in previously.
+
+## Performance Characteristics
+
+### Workflow Skills (Markdown)
+
+- **Load time:** &lt;50ms (just reading a Markdown file)
+- **Memory:** Negligible
+- **Dependencies:** None
+
+### Browser Automation
+
+- **First launch:** ~3 seconds (cold start Chromium + HTTP server)
+- **Subsequent commands:** 100-200ms (HTTP POST to localhost)
+- **Memory:** ~150-250MB (Chromium + Node/Bun runtime)
+- **Idle timeout:** 30 minutes (auto-shutdown)
+- **Version auto-restart:** Seamless (CLI detects stale binary, kills old server, starts new one)
+
+<Tip>
+**Running 10 parallel workspaces?** Each gets its own browser daemon on a random port. Total memory: ~2GB for all 10 instances. This is the Conductor setup — one person, ten parallel agents, each with the right cognitive mode.
+</Tip>
+
+## When to Use Which Mode
+
+| Skill | Use When | Don't Use When |
+|-------|----------|----------------|
+| `/plan-ceo-review` | Rethinking product direction, finding 10-star version | Implementation is already decided |
+| `/plan-eng-review` | Designing architecture, need diagrams | Just fixing a small bug |
+| `/review` | Ready to ship, need structural audit | Still in early exploration |
+| `/ship` | Branch is ready, tests pass, want PR | Still writing code |
+| `/browse` | Need to inspect live URL, test auth flows | Just reading static docs |
+| `/qa` | Testing affected routes after code changes | No code changes to test |
+| `/retro` | End of week, want team metrics + feedback | Middle of feature work |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Workflow Modes" icon="brain" href="/concepts/workflow-modes">
+    Deep dive into CEO, Eng Manager, Review, and Ship modes
+  </Card>
+  <Card title="Browser Automation" icon="browser" href="/concepts/browser-automation">
+    How the persistent browser daemon works
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Technical architecture, daemon model, ref system
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/installation">
+    Install gstack and run your first skill
+  </Card>
+</CardGroup>

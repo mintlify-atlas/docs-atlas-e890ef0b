@@ -1,0 +1,388 @@
+---
+title: '/review Command'
+description: 'Pre-landing PR review that catches structural issues tests miss: SQL safety, trust boundaries, race conditions'
+icon: 'shield-check'
+---
+
+## Overview
+
+`/review` is your paranoid staff engineer mode. It analyzes your branch diff against main for structural issues that tests don't catch — things that can pass CI but blow up in production.
+
+**What it checks:** SQL safety, LLM trust boundary violations, race conditions, N+1 queries, bad retry logic, missing indexes, and more.
+
+<Note>
+  `/review` is read-only by default. It only modifies files if you explicitly choose "Fix it now" on a critical issue.
+</Note>
+
+## Command Syntax
+
+```bash
+/review
+```
+
+No flags, no options. Just run it on your feature branch.
+
+## The Review Workflow
+
+<Steps>
+  <Step title="Check branch">
+    Verifies you're on a feature branch (not main) and have changes against `origin/main`.
+    
+    If on main or no diff exists: "Nothing to review — you're on main or have no changes against main."
+  </Step>
+  
+  <Step title="Read the checklist">
+    Loads `.claude/skills/review/checklist.md` — the source of truth for review rules.
+    
+    **If the file can't be read:** STOPS and reports the error. The review won't proceed without the checklist.
+  </Step>
+  
+  <Step title="Fetch Greptile comments (if PR exists)">
+    Checks for Greptile review comments on the PR and classifies them:
+    - VALID & ACTIONABLE
+    - VALID BUT ALREADY FIXED
+    - FALSE POSITIVE
+    - SUPPRESSED (known FP from history)
+    
+    If no PR exists or no Greptile comments: silently skips this step.
+  </Step>
+  
+  <Step title="Get the diff">
+    Fetches latest main and runs `git diff origin/main` to get the full diff (committed + uncommitted changes).
+  </Step>
+  
+  <Step title="Two-pass review">
+    **Pass 1 (CRITICAL):**
+    - SQL & Data Safety
+    - LLM Output Trust Boundary
+    
+    **Pass 2 (INFORMATIONAL):**
+    - Conditional Side Effects
+    - Magic Numbers & String Coupling
+    - Dead Code & Consistency
+    - LLM Prompt Issues
+    - Test Gaps
+    - View/Frontend
+  </Step>
+  
+  <Step title="Output findings">
+    **Always outputs ALL findings** — both critical and informational.
+    
+    **If CRITICAL issues found:** For each issue, asks:
+    - A) Fix it now (recommended)
+    - B) Acknowledge and ship anyway
+    - C) False positive — skip
+    
+    After all questions, applies fixes if you chose A on any issue.
+    
+    **If only non-critical issues:** Outputs findings. No action needed.
+    
+    **If no issues:** "Pre-Landing Review: No issues found."
+  </Step>
+  
+  <Step title="Resolve Greptile comments">
+    For each classified Greptile comment:
+    
+    - **VALID & ACTIONABLE:** Same flow as critical findings above
+    - **FALSE POSITIVE:** Asks whether to reply explaining, fix anyway, or ignore
+    - **VALID BUT ALREADY FIXED:** Auto-replies acknowledging the catch
+    - **SUPPRESSED:** Skipped silently
+  </Step>
+</Steps>
+
+## Review Categories
+
+### Pass 1: Critical
+
+<Accordion title="SQL & Data Safety">
+  **What it catches:**
+  - String interpolation in SQL (SQL injection risk)
+  - Missing uniqueness constraints on semantically unique columns
+  - N+1 queries in controllers
+  - Missing indexes on foreign keys
+  - Destructive migrations without safety gates
+  
+  **Example finding:**
+  ```plaintext
+  [CRITICAL] app/controllers/api/payments_controller.rb:23
+  SQL injection: using string interpolation in where clause.
+  Change `where("user_id = #{params[:user_id]}")` to 
+  `where(user_id: params[:user_id])`
+  ```
+</Accordion>
+
+<Accordion title="LLM Output Trust Boundary">
+  **What it catches:**
+  - LLM output rendered as HTML without escaping
+  - LLM output used in SQL queries without parameterization
+  - LLM output executed as code
+  - LLM output used to construct file paths
+  
+  **Example finding:**
+  ```plaintext
+  [CRITICAL] app/views/posts/show.html.erb:12
+  Trust boundary violation: rendering LLM-generated content with
+  raw(). Use sanitize() or render as plain text.
+  ```
+</Accordion>
+
+### Pass 2: Informational
+
+<Accordion title="Conditional Side Effects">
+  **What it catches:**
+  - Database writes, external API calls, or email sends inside conditionals that depend on user input or LLM output
+  - Idempotency issues in retry scenarios
+  
+  **Example finding:**
+  ```plaintext
+  [INFO] app/services/notification_service.rb:34
+  Conditional side effect: email send inside if statement checking
+  LLM sentiment. Consider idempotency key or move to background job.
+  ```
+</Accordion>
+
+<Accordion title="Magic Numbers & String Coupling">
+  **What it catches:**
+  - Hardcoded threshold values without constants
+  - String matching on LLM output for control flow
+  - Tight coupling to specific LLM response formats
+  
+  **Example finding:**
+  ```plaintext
+  [INFO] app/services/classifier.rb:18
+  Magic number: 0.85 threshold hardcoded. Extract to constant
+  CONFIDENCE_THRESHOLD.
+  ```
+</Accordion>
+
+<Accordion title="Dead Code & Consistency">
+  **What it catches:**
+  - Methods defined but never called
+  - Unreachable code paths
+  - Inconsistent error handling patterns
+  
+  **Example finding:**
+  ```plaintext
+  [INFO] app/services/payment_service.rb:67
+  Unreachable: this rescue block can never execute because the
+  exception is caught upstream at line 42.
+  ```
+</Accordion>
+
+<Accordion title="Test Gaps">
+  **What it catches:**
+  - New public methods without tests
+  - Changed behavior without corresponding test updates
+  - Missing edge case coverage
+  
+  **Example finding:**
+  ```plaintext
+  [INFO] app/services/enrichment_service.rb:23
+  Test gap: new method classify_product has no test coverage.
+  Add test for success case and failure modes.
+  ```
+</Accordion>
+
+## Greptile Integration
+
+If a PR exists and Greptile has reviewed it, `/review` fetches and triages its comments:
+
+### Classification Examples
+
+**VALID & ACTIONABLE:**
+```plaintext
+app/services/payment_service.rb:47 — Race condition: concurrent
+charges can double-debit. Recommend DB-level advisory lock.
+→ https://github.com/you/app/pull/42#discussion_r123
+
+Options:
+  A) Fix it now (recommended)
+  B) Acknowledge and ship anyway
+  C) False positive
+```
+
+**VALID BUT ALREADY FIXED:**
+```plaintext
+app/models/user.rb:12 — Missing null check on email before downcase.
+→ Already fixed in commit abc1234. Auto-replying.
+```
+
+**FALSE POSITIVE:**
+```plaintext
+lib/auth.rb:88 — "Token comparison should use constant-time."
+We already use ActiveSupport::SecurityUtils.secure_compare here.
+→ https://github.com/you/app/pull/42#discussion_r125
+
+Options:
+  A) Reply to Greptile explaining (recommended)
+  B) Fix it anyway
+  C) Ignore
+```
+
+**SUPPRESSED:**
+```plaintext
+[Skipped] lib/helpers.rb:34 — Known false positive from history.
+Pattern saved: "html_safe on constant strings"
+```
+
+### Greptile History
+
+False positive patterns are saved to `~/.gstack/greptile-history.md`:
+
+```markdown
+## 2026-03-14 | PR #42 | False Positive
+
+**Comment:** lib/auth.rb:88 — Token comparison should use constant-time
+**Why FP:** Already using ActiveSupport::SecurityUtils.secure_compare
+**Pattern:** "constant-time comparison" on secure_compare usage
+```
+
+Future runs auto-skip known patterns, improving signal-to-noise over time.
+
+## Important Rules
+
+1. **Read the FULL diff before commenting** — Don't flag issues already addressed in the diff
+2. **Read-only by default** — Only modify files if user chooses "Fix it now"
+3. **Be terse** — One line problem, one line fix, no preamble
+4. **Only flag real problems** — Skip anything that's fine
+5. **Never commit, push, or create PRs** — Review is diagnostic only
+
+## Examples
+
+### Clean review (no issues)
+
+```bash
+You:   /review
+
+Claude: On branch feature/listing-enrichment
+        12 files changed against origin/main
+        
+        Pre-Landing Review: No issues found.
+        
+        No Greptile comments.
+```
+
+### Critical issue found
+
+```bash
+You:   /review
+
+Claude: Pre-Landing Review: 1 critical, 2 informational
+        
+        [CRITICAL] app/services/payment_service.rb:47
+        Race condition: concurrent charges can double-debit the user.
+        Two parallel requests can both read balance → both pass check →
+        both charge → balance goes negative.
+        
+        Recommended fix: Wrap charge block with advisory lock:
+        ```ruby
+        ActiveRecord::Base.with_advisory_lock("charge_#{user.id}") do
+          # existing charge logic
+        end
+        ```
+        
+        Options:
+          A) Fix it now (recommended)
+          B) Acknowledge and ship anyway
+          C) False positive
+
+You:    A
+
+Claude: Applied fix to app/services/payment_service.rb.
+        
+        [INFO] app/services/enrichment_service.rb:23
+        Test gap: new method classify_product has no test coverage.
+        
+        [INFO] app/views/listings/show.html.erb:34
+        LLM output rendered with raw(). Consider sanitize() instead.
+        
+        Summary: Fixed 1 critical issue. 2 informational findings noted.
+```
+
+### Greptile false positive
+
+```bash
+You:   /review
+
+Claude: Pre-Landing Review: No issues found.
+        
+        + 1 Greptile comment (0 valid, 0 fixed, 1 FP)
+        
+        [FALSE POSITIVE] lib/auth.rb:88
+        Greptile: "Token comparison should use constant-time comparison."
+        
+        We already use ActiveSupport::SecurityUtils.secure_compare here.
+        This is the Rails-recommended constant-time comparison method.
+        → https://github.com/you/app/pull/42#discussion_r125
+        
+        Options:
+          A) Reply to Greptile explaining (recommended)
+          B) Fix it anyway
+          C) Ignore
+
+You:    A
+
+Claude: Replied to Greptile comment.
+        Saved pattern to ~/.gstack/greptile-history.md (type: fp).
+        Future runs will auto-skip this pattern.
+```
+
+### Multiple issues with Greptile
+
+```bash
+You:   /review
+
+Claude: Pre-Landing Review: 1 critical, 1 informational
+        + 2 Greptile comments (1 valid, 1 fixed)
+        
+        [CRITICAL] app/controllers/api/payments_controller.rb:23
+        SQL injection: using string interpolation in where clause.
+        Change `where("user_id = #{params[:user_id]}")` to
+        `where(user_id: params[:user_id])`
+        
+        Greptile also flagged this at payments_controller.rb:23.
+        → https://github.com/you/app/pull/42#discussion_r130
+        
+        Options:
+          A) Fix it now (recommended)
+          B) Acknowledge
+          C) False positive
+
+You:    A
+
+Claude: Fixed SQL injection. Committed: fix: use parameterized query.
+        Replied to Greptile: "Fixed in [commit sha]."
+        
+        [VALID BUT ALREADY FIXED] app/models/user.rb:12
+        Greptile: Missing null check on email before downcase.
+        → Already fixed in commit abc1234. Auto-replying.
+        
+        [INFO] app/services/classifier.rb:18
+        Magic number: 0.85 threshold hardcoded. Extract to constant.
+        
+        Summary: Fixed 1 critical issue (also caught by Greptile).
+        Auto-replied to 1 already-fixed Greptile comment.
+        1 informational finding noted.
+```
+
+## When to Use Review
+
+| Scenario | Use `/review`? | Why |
+|----------|---------------|-----|
+| Before running `/ship` | Yes | Catch issues before they block shipping |
+| After major refactor | Yes | Verify no structural regressions |
+| Tests are green | Yes | Tests don't catch trust boundaries or race conditions |
+| Code looks simple | Yes | Simple code can still have subtle bugs |
+| Just want to commit | No | Review is for pre-merge checks |
+| Still implementing | No | Wait until feature is complete |
+
+## Integration with `/ship`
+
+`/ship` runs `/review` automatically as Step 3.5 (pre-landing review). If `/review` finds critical issues during `/ship`:
+
+1. `/ship` stops
+2. You choose to fix, acknowledge, or mark false positive
+3. If you fix: `/ship` commits the fixes and tells you to run `/ship` again
+4. If you acknowledge: `/ship` continues and notes the issue in the PR body
+
+This ensures every PR gets reviewed before it lands, with a consistent audit trail.

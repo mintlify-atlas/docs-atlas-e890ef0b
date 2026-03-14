@@ -1,0 +1,535 @@
+---
+title: Interaction Commands
+description: Click, fill, type, and interact with page elements
+---
+
+Interaction commands simulate user actions like clicking, typing, scrolling, and uploading files.
+
+## click
+
+Click an element.
+
+```bash
+browse click <selector>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref` from snapshot
+</ParamField>
+
+### Behavior
+
+- Waits for element to be visible and clickable (5s timeout)
+- Performs click at element center
+- Waits briefly for navigation or DOM updates
+- Returns current URL after click
+
+### Examples
+
+<CodeGroup>
+
+```bash Click button by CSS
+browse click "#submit-btn"
+```
+
+```txt Output
+Clicked #submit-btn → now at https://example.com/result
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Click using ref
+browse snapshot -i
+# @e1 [button] "Submit Form"
+browse click @e1
+```
+
+```txt Output
+Clicked @e1 → now at https://example.com/success
+```
+
+</CodeGroup>
+
+---
+
+## fill
+
+Fill an input field.
+
+```bash
+browse fill <selector> <value>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref` for input element
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  Text to fill. Multi-word values are joined with spaces.
+</ParamField>
+
+### Behavior
+
+- Clears existing content first
+- Types new value character by character
+- Works with text inputs, textareas, contenteditable
+- 5s timeout to find element
+
+### Examples
+
+<CodeGroup>
+
+```bash Fill email input
+browse fill "#email" "user@example.com"
+```
+
+```txt Output
+Filled #email
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Fill multi-word text
+browse fill "#name" "John Doe"
+browse fill "textarea" "This is a long message with multiple words"
+```
+
+</CodeGroup>
+
+---
+
+## select
+
+Select dropdown option by value, label, or visible text.
+
+```bash
+browse select <selector> <value>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref` for `<select>` element
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  Option value, label, or visible text to select
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Select by value
+browse select "#role" "admin"
+```
+
+```txt Output
+Selected "admin" in #role
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Select by label
+browse select "#country" "United States"
+```
+
+</CodeGroup>
+
+---
+
+## hover
+
+Hover over an element.
+
+```bash
+browse hover <selector>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref` for element to hover
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Trigger hover menu
+browse hover ".menu-trigger"
+browse wait ".dropdown-menu"
+browse click ".dropdown-item"
+```
+
+```txt Output
+Hovered .menu-trigger
+```
+
+</CodeGroup>
+
+---
+
+## type
+
+Type text into the currently focused element.
+
+```bash
+browse type <text>
+```
+
+<ParamField path="text" type="string" required>
+  Text to type. Multi-word text is joined with spaces.
+</ParamField>
+
+### Behavior
+
+- Types into `document.activeElement`
+- Fires keyboard events for each character
+- Does NOT clear existing content
+- Preserves cursor position
+
+### Examples
+
+<CodeGroup>
+
+```bash Focus then type
+browse click "#search-input"
+browse type "playwright testing"
+```
+
+```txt Output
+Typed 18 characters
+```
+
+</CodeGroup>
+
+<Tip>
+Use `fill` to replace content, `type` to append or type into focused elements.
+</Tip>
+
+---
+
+## press
+
+Press a keyboard key or key combination.
+
+```bash
+browse press <key>
+```
+
+<ParamField path="key" type="string" required>
+  Key name: `Enter`, `Tab`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, or modifiers like `Shift+Enter`
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Press Enter
+browse fill "#search" "playwright"
+browse press Enter
+```
+
+```txt Output
+Pressed Enter
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Navigate with arrow keys
+browse press ArrowDown
+browse press ArrowDown
+browse press Enter
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Modifier keys
+browse press Shift+Enter  # Insert newline
+browse press Control+A    # Select all
+```
+
+</CodeGroup>
+
+---
+
+## scroll
+
+Scroll element into view or scroll to page bottom.
+
+```bash
+browse scroll [selector]
+```
+
+<ParamField path="selector" type="string">
+  CSS selector or `@ref`. If omitted, scrolls to page bottom.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Scroll to element
+browse scroll "#footer"
+```
+
+```txt Output
+Scrolled #footer into view
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Scroll to bottom
+browse scroll
+```
+
+```txt Output
+Scrolled to bottom
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Infinite scroll pattern
+browse scroll  # Trigger load more
+browse wait 1000
+browse scroll  # Load more again
+```
+
+</CodeGroup>
+
+---
+
+## wait
+
+Wait for element, network idle, or page load.
+
+```bash
+browse wait <selector|--networkidle|--load|--domcontentloaded> [timeout]
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector, `@ref`, or load state flag
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Timeout in milliseconds (default: 15000)
+</ParamField>
+
+### Wait Modes
+
+| Mode | Description |
+|------|-------------|
+| `<selector>` | Wait for element to be visible |
+| `--networkidle` | Wait for network to be idle (no requests for 500ms) |
+| `--load` | Wait for `load` event |
+| `--domcontentloaded` | Wait for DOM ready |
+
+### Examples
+
+<CodeGroup>
+
+```bash Wait for element
+browse click "#load-more"
+browse wait ".new-content"
+```
+
+```txt Output
+Element .new-content appeared
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Wait for network idle
+browse goto https://spa.example.com
+browse wait --networkidle
+browse text  # Now safe to extract
+```
+
+```txt Output
+Network idle
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Custom timeout
+browse wait ".slow-element" 30000  # 30 second timeout
+```
+
+</CodeGroup>
+
+---
+
+## upload
+
+Upload file(s) to a file input.
+
+```bash
+browse upload <selector> <file1> [file2...]
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref` for `<input type="file">`
+</ParamField>
+
+<ParamField path="file1" type="string" required>
+  Path to file to upload (can be multiple files)
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Upload single file
+browse upload "#file-input" "/tmp/document.pdf"
+```
+
+```txt Output
+Uploaded: document.pdf (1024B)
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Upload multiple files
+browse upload "#attachments" "/tmp/file1.jpg" "/tmp/file2.jpg"
+```
+
+```txt Output
+Uploaded: file1.jpg (2048B), file2.jpg (3072B)
+```
+
+</CodeGroup>
+
+<Warning>
+All file paths must exist. The command validates file existence before upload.
+</Warning>
+
+---
+
+## viewport
+
+Set browser viewport size.
+
+```bash
+browse viewport <WxH>
+```
+
+<ParamField path="WxH" type="string" required>
+  Width x Height in pixels (e.g., `375x812`)
+</ParamField>
+
+### Common Sizes
+
+| Device | Size |
+|--------|------|
+| Mobile (iPhone) | `375x812` |
+| Tablet (iPad) | `768x1024` |
+| Desktop | `1280x720` |
+| Full HD | `1920x1080` |
+
+### Examples
+
+<CodeGroup>
+
+```bash Set mobile viewport
+browse viewport 375x812
+browse screenshot /tmp/mobile.png
+```
+
+```txt Output
+Viewport set to 375x812
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Test responsive design
+browse goto https://example.com
+browse viewport 375x812
+browse screenshot /tmp/mobile.png
+browse viewport 1920x1080
+browse screenshot /tmp/desktop.png
+```
+
+</CodeGroup>
+
+<Tip>
+Use `responsive` command to automatically capture mobile, tablet, and desktop screenshots.
+</Tip>
+
+---
+
+## Common Patterns
+
+### Form Submission
+
+```bash
+browse goto https://example.com/login
+browse fill "#email" "user@example.com"
+browse fill "#password" "secret123"
+browse click "#submit"
+browse wait --load
+browse url  # Verify redirect
+```
+
+### Search and Select
+
+```bash
+browse goto https://example.com
+browse fill "#search" "playwright"
+browse press Enter
+browse wait ".results"
+browse click ".result:first-child"
+```
+
+### Dropdown Navigation
+
+```bash
+browse hover ".nav-item"
+browse wait ".dropdown-menu"
+browse click ".dropdown-item"
+```
+
+### File Upload Flow
+
+```bash
+browse goto https://example.com/upload
+browse upload "#file" "/tmp/report.pdf"
+browse click "#upload-btn"
+browse wait ".success-message"
+```
+
+### Keyboard Navigation
+
+```bash
+browse click "#search-input"
+browse type "playwright"
+browse press ArrowDown
+browse press ArrowDown
+browse press Enter
+```
+
+---
+
+## Related Commands
+
+- [`snapshot`](/commands/browse/overview#the-ref-system) - Get element refs
+- [`is`](/commands/browse/inspection#is) - Check element state
+- [`screenshot`](/commands/browse/visual#screenshot) - Capture visual output

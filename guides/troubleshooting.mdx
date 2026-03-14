@@ -1,0 +1,231 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for gstack
+---
+
+This guide covers common issues you might encounter with gstack and how to resolve them.
+
+## Skill Discovery Issues
+
+<Accordion title="Skill not showing up in Claude Code?">
+  The skill symlinks may need to be rebuilt so Claude can discover them.
+
+  <Steps>
+    <Step title="Navigate to gstack directory">
+      For global installs:
+      ```bash
+      cd ~/.claude/skills/gstack
+      ```
+
+      For project installs:
+      ```bash
+      cd .claude/skills/gstack
+      ```
+    </Step>
+
+    <Step title="Run setup">
+      ```bash
+      ./setup
+      ```
+
+      This rebuilds symlinks so Claude can discover the skills.
+    </Step>
+  </Steps>
+</Accordion>
+
+## Browser Binary Issues
+
+<Accordion title="/browse fails or binary not found?">
+  The browser binary needs to be compiled. This requires Bun v1.0+.
+
+  <Steps>
+    <Step title="Navigate to gstack directory">
+      ```bash
+      cd ~/.claude/skills/gstack
+      ```
+    </Step>
+
+    <Step title="Install dependencies and build">
+      ```bash
+      bun install && bun run build
+      ```
+
+      This compiles the browser binary (~58MB).
+    </Step>
+  </Steps>
+
+  <Note>
+    The `/browse` skill handles binary compilation automatically on first use if the binary is missing.
+  </Note>
+</Accordion>
+
+<Accordion title="bun not installed?">
+  gstack requires Bun v1.0+ for building the browser binary.
+
+  Install Bun:
+  ```bash
+  curl -fsSL https://bun.sh/install | bash
+  ```
+
+  After installation, rebuild gstack:
+  ```bash
+  cd ~/.claude/skills/gstack && bun install && bun run build
+  ```
+</Accordion>
+
+## Update Issues
+
+<Accordion title="Project copy is stale?">
+  If your project-local gstack installation is out of sync with the global one, you can re-copy it.
+
+  <Warning>
+    This will replace your project-local gstack copy entirely. Any local modifications will be lost.
+  </Warning>
+
+  ```bash
+  for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do 
+    rm -f .claude/skills/$s
+  done && 
+  rm -rf .claude/skills/gstack && 
+  cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && 
+  rm -rf .claude/skills/gstack/.git && 
+  cd .claude/skills/gstack && ./setup
+  ```
+</Accordion>
+
+## Browser Session Issues
+
+<Accordion title="Browser session won't start">
+  If the browser daemon fails to start:
+
+  1. **Check for port conflicts**: The browser uses a random available port, but conflicts can still occur.
+  2. **Check browser binary permissions**: Ensure the binary at `browse/dist/browse` is executable.
+  3. **Clear session state**: Remove `.gstack/browser-state/` in your project root.
+
+  ```bash
+  rm -rf .gstack/browser-state/
+  ```
+</Accordion>
+
+<Accordion title="Cookies not importing from browser">
+  `/setup-browser-cookies` requires macOS Keychain access to decrypt browser cookies.
+
+  <Steps>
+    <Step title="Check for Keychain prompt">
+      The first import per browser triggers a macOS Keychain prompt.
+      
+      Click **"Allow"** or **"Always Allow"** when prompted.
+    </Step>
+
+    <Step title="Verify browser support">
+      Supported browsers:
+      - Comet
+      - Chrome
+      - Arc
+      - Brave
+      - Edge
+
+      Make sure you're using one of these Chromium-based browsers.
+    </Step>
+
+    <Step title="Check browser is installed">
+      The tool auto-detects installed browsers. If your browser isn't found, verify it's installed in the standard location.
+    </Step>
+  </Steps>
+</Accordion>
+
+## QA and Testing Issues
+
+<Accordion title="/qa can't detect my app">
+  `/qa` tries to auto-detect your local dev server. If detection fails:
+
+  1. **Specify the URL explicitly**:
+     ```
+     /qa http://localhost:3000
+     ```
+
+  2. **Ensure your dev server is running** before invoking `/qa`.
+
+  3. **Check common ports**: gstack looks for apps on `localhost:3000`, `localhost:8080`, etc.
+</Accordion>
+
+<Accordion title="/qa reports false positives">
+  If `/qa` reports issues that aren't real problems:
+
+  - **Visual differences**: Screenshots may show rendering differences that aren't bugs (fonts, timing).
+  - **Console warnings**: Not all console output indicates bugs. Review the specific errors reported.
+  - **Network timing**: Slow responses may trigger timeouts. Increase timeout thresholds if needed.
+
+  Use `/qa --quick` for a faster smoke test if full mode is too sensitive.
+</Accordion>
+
+## Greptile Integration Issues
+
+<Accordion title="Greptile comments not being picked up">
+  If `/review` or `/ship` aren't detecting Greptile comments:
+
+  1. **Verify Greptile is installed**: Check [greptile.com](https://greptile.com) and confirm it's reviewing your PRs.
+  2. **Ensure you're on a branch with a PR**: Greptile comments appear on pull requests.
+  3. **Check PR status**: The PR must be open for comments to be fetched.
+</Accordion>
+
+## Development Issues
+
+<Accordion title="SKILL.md changes not taking effect">
+  SKILL.md files are generated from `.tmpl` templates.
+
+  <Warning>
+    Never edit SKILL.md directly. Your changes will be overwritten on the next build.
+  </Warning>
+
+  <Steps>
+    <Step title="Edit the template">
+      Edit `SKILL.md.tmpl` (or `browse/SKILL.md.tmpl`) instead of the `.md` file.
+    </Step>
+
+    <Step title="Regenerate">
+      ```bash
+      cd ~/.claude/skills/gstack
+      bun run gen:skill-docs
+      ```
+    </Step>
+
+    <Step title="Verify changes">
+      Check the generated SKILL.md file to confirm your changes were applied.
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Tests failing after changes">
+  If you're developing gstack and tests fail:
+
+  ```bash
+  # Run all tests
+  bun test
+
+  # Run specific test tier
+  bun run test:eval      # LLM-as-judge evals
+  bun run test:e2e       # E2E skill tests (costs ~$0.50)
+  ```
+
+  Common causes:
+  - **Invalid command references**: Check `browse/src/commands.ts` for valid commands.
+  - **Missing snapshot flags**: Verify flags exist in `browse/src/snapshot.ts`.
+  - **Stale binary**: Rebuild with `bun run build`.
+</Accordion>
+
+## Still Having Issues?
+
+If you're experiencing an issue not covered here:
+
+1. **Check the GitHub repository**: [github.com/garrytan/gstack](https://github.com/garrytan/gstack)
+2. **Review BROWSER.md**: For browser-specific issues, see the full technical reference.
+3. **Open an issue**: Report bugs or request help on GitHub.
+
+<Note>
+  When reporting issues, include:
+  - Your OS and version (macOS/Linux)
+  - Bun version (`bun --version`)
+  - gstack installation type (global vs project-local)
+  - Full error message and stack trace
+</Note>

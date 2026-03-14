@@ -1,0 +1,580 @@
+---
+title: "Greptile Integration"
+description: "How gstack triages Greptile PR review comments automatically"
+---
+
+[Greptile](https://greptile.com) is an automated PR reviewer that catches real bugs: race conditions, security issues, things that pass CI and blow up in production. gstack integrates with Greptile to triage its findings automatically.
+
+## The Problem
+
+Automated reviewers produce comments. Without triage, they pile up:
+
+- Some are real bugs that need fixing
+- Some flag things you already fixed 3 commits ago  
+- Some are false positives
+
+If you don't triage, you start ignoring all comments. That defeats the purpose.
+
+## How gstack Solves This
+
+Both `/review` and `/ship` are Greptile-aware. They:
+
+1. **Fetch** Greptile comments from the PR
+2. **Classify** each one: valid, already fixed, or false positive
+3. **Take action**:
+   - Fix valid issues
+   - Reply to acknowledge fixes  
+   - Reply to push back on false positives
+4. **Learn** by saving false positive patterns to suppress future noise
+
+<Note>
+Greptile integration is **additive**. If Greptile isn't installed, or the PR doesn't exist yet, gstack works normally. No setup required beyond installing Greptile on your repo.
+</Note>
+
+## Setup
+
+<Steps>
+  <Step title="Install Greptile on your GitHub repo">
+    Visit [greptile.com](https://greptile.com) and connect your repository. Takes about 30 seconds.
+  </Step>
+
+  <Step title="That's it">
+    gstack picks up Greptile comments automatically. No configuration needed.
+  </Step>
+</Steps>
+
+The first time Greptile reviews a PR, it takes 2-3 minutes to index your codebase. After that, reviews are near-instant.
+
+## How It Works in /ship
+
+When you run `/ship`, Step 3.75 handles Greptile triage:
+
+<Steps>
+  <Step title="Check if PR exists">
+    ```bash
+    gh pr view --json number
+    ```
+    
+    If no PR exists yet, skip Greptile triage silently. The PR gets created later in Step 8.
+  </Step>
+
+  <Step title="Fetch Greptile comments">
+    ```bash
+    # Line-level review comments
+    gh api repos/$REPO/pulls/$PR/comments \
+      --jq '.[] | select(.user.login == "greptile-apps[bot]")'
+    
+    # Top-level PR comments  
+    gh api repos/$REPO/issues/$PR/comments \
+      --jq '.[] | select(.user.login == "greptile-apps[bot]")'
+    ```
+    
+    If no comments, skip triage.
+  </Step>
+
+  <Step title="Filter known false positives">
+    Check each comment against `~/.gstack/greptile-history.md`:
+    
+    ```
+    2026-03-13 | you/repo | fp | app/services/auth*.rb | race-condition
+    2026-03-13 | you/repo | fp | lib/payments.rb | null-check
+    ```
+    
+    Skip comments matching known FP patterns.
+  </Step>
+
+  <Step title="Classify remaining comments">
+    For each comment, read the relevant code and classify:
+    
+    - **VALID & ACTIONABLE**: Real bug in current code
+    - **VALID BUT ALREADY FIXED**: Real bug, but fixed in a later commit
+    - **FALSE POSITIVE**: Misunderstands code or flags something handled elsewhere
+  </Step>
+
+  <Step title="Present findings">
+    ```
+    Claude: + 3 Greptile comments (1 valid, 1 fixed, 1 FP)
+            
+            [VALID] app/services/payment_service.rb:47
+            Race condition: concurrent charges can double-debit.
+            Recommend DB-level advisory lock around charge block.
+            → https://github.com/you/app/pull/42#discussion_r123
+            
+            [ALREADY FIXED] app/models/user.rb:12
+            Missing null check on email before downcase.
+            → Already fixed in commit abc1234. Auto-replying.
+            
+            [FALSE POSITIVE] lib/auth.rb:88
+            "Token comparison should use constant-time comparison."
+            We already use ActiveSupport::SecurityUtils.secure_compare.
+            → https://github.com/you/app/pull/42#discussion_r125
+    ```
+  </Step>
+
+  <Step title="Handle each comment">
+    **VALID**: Ask how to proceed:
+    ```
+    Options:
+    A) Fix now (recommended)
+    B) Acknowledge and ship anyway
+    C) It's a false positive
+    
+    You: A
+    
+    Claude: Fixed in commit def5678.
+            Replied: "Fixed in def5678."
+            Saved to ~/.gstack/greptile-history.md (type: fix)
+    ```
+    
+    **ALREADY FIXED**: Auto-reply:
+    ```
+    Claude: Replied: "Good catch — already fixed in abc1234."
+            Saved to ~/.gstack/greptile-history.md (type: already-fixed)
+    ```
+    
+    **FALSE POSITIVE**: Ask whether to reply:
+    ```
+    Options:
+    A) Reply to Greptile explaining (recommended)
+    B) Fix it anyway
+    C) Ignore
+    
+    You: A
+    
+    Claude: Replied: "We already use secure_compare on line 88. 
+                      This is constant-time by design."
+            Saved to ~/.gstack/greptile-history.md (type: fp)
+    ```
+  </Step>
+
+  <Step title="Re-run tests if fixes were applied">
+    If you chose "Fix now" on any valid issue:
+    
+    ```
+    Claude: Applied 1 fix. Re-running tests...
+            [runs full test suite again]
+            All tests pass. Continuing to version bump.
+    ```
+  </Step>
+</Steps>
+
+## Example: Full Triage Flow
+
+```
+You: /ship
+
+Claude: [Syncs main, runs tests, pre-landing review...]
+        
+        Greptile found 3 comments on PR #42:
+        
+        [VALID] app/services/payment_service.rb:47
+        Race condition: concurrent charges can double-debit.
+        Between checking balance (line 44) and creating charge
+        (line 47), another request could sneak in.
+        
+        Recommend DB-level advisory lock:
+        Listing.with_advisory_lock("payment-#{user_id}") do
+          # existing charge logic
+        end
+        
+        Options:
+        A) Fix now (recommended) — 2 min, eliminates race
+        B) Acknowledge — acceptable if we handle via idempotency
+        C) False positive — already locked at controller level
+        
+You: A
+
+Claude: Applied advisory lock.
+        Committed: fix(payment): advisory lock for concurrent charges
+        Replied to Greptile: "Fixed in commit 3a7f9b2."
+        
+        [ALREADY FIXED] app/models/user.rb:12
+        Missing null check on email before downcase.
+        → Already fixed in commit abc1234.
+        
+        Auto-replying: "Good catch — already fixed in abc1234."
+        
+        [FALSE POSITIVE] lib/auth.rb:88
+        "Token comparison should use constant-time comparison."
+        
+        We're already using ActiveSupport::SecurityUtils.secure_compare
+        on line 88, which is constant-time by design.
+        
+        Options:
+        A) Reply to Greptile explaining (recommended)
+        B) Fix it anyway (use a different constant-time impl)
+        C) Ignore silently
+        
+You: A
+
+Claude: Replied: "We already use secure_compare here (line 88),
+                  which is constant-time. This is handled correctly."
+        
+        Saved FP pattern to ~/.gstack/greptile-history.md:
+        2026-03-14 | you/app | fp | lib/auth.rb | security
+        
+        Applied 1 fix. Re-running tests...
+        [runs test suite]
+        All tests pass.
+        
+        Continuing to version bump...
+        [rest of /ship workflow]
+```
+
+## History File Format
+
+False positives are saved to `~/.gstack/greptile-history.md`:
+
+```markdown
+# Greptile Review History
+
+Learned patterns from PR review triage.
+
+## Entries
+
+2026-03-14 | you/app | fp | lib/auth.rb | security
+2026-03-14 | you/app | fix | app/services/payment_service.rb | race-condition  
+2026-03-14 | you/app | already-fixed | app/models/user.rb | null-check
+2026-03-13 | you/app | fp | app/services/*_prompt_builder.rb | style
+```
+
+**Format:**
+```
+<date> | <repo> | <type> | <file-pattern> | <category>
+```
+
+**Types:**
+- `fp`: False positive — suppress future comments matching this pattern
+- `fix`: Valid issue that was fixed
+- `already-fixed`: Valid issue that was already addressed
+
+**Categories** (fixed set):
+- `race-condition`
+- `null-check`
+- `error-handling`
+- `security`
+- `performance`
+- `correctness`
+- `style`
+- `type-safety`
+- `other`
+
+<Note>
+Only `fp` entries suppress future comments. `fix` and `already-fixed` entries are for tracking Greptile's batting average over time.
+</Note>
+
+## Suppression Matching
+
+A comment is suppressed if **all** of these match an `fp` entry:
+
+1. **Repo** matches current repo
+2. **File pattern** matches comment's file path (supports wildcards)
+3. **Category** matches issue type in comment
+
+**Example:**
+
+History entry:
+```
+2026-03-13 | you/app | fp | app/services/*_prompt_builder.rb | style
+```
+
+This suppresses:
+- File: `app/services/post_prompt_builder.rb`, Category: `style` ✓
+- File: `app/services/tweet_prompt_builder.rb`, Category: `style` ✓
+
+But NOT:
+- File: `app/services/post_prompt_builder.rb`, Category: `security` ✗ (category mismatch)
+- File: `app/models/post.rb`, Category: `style` ✗ (file pattern mismatch)
+
+## How /review Uses Greptile
+
+The `/review` skill triages Greptile at Step 2.5 (before running its own checklist).
+
+The flow is the same as `/ship`, but with one difference:
+
+- **In /ship**: Greptile issues are shown after pre-landing review
+- **In /review**: Greptile issues are shown first, then `/review` findings
+
+This way, you can fix Greptile issues and your own findings in a single pass.
+
+**Example:**
+
+```
+You: /review
+
+Claude: [Fetches Greptile comments]
+        
+        + 2 Greptile comments (1 valid, 1 FP)
+        
+        [Triage Greptile as shown above]
+        
+        [Then runs /review checklist]
+        
+        Pre-Landing Review: 1 critical issue, 0 informational
+        
+        [CRITICAL] app/controllers/api/posts_controller.rb:23
+        Missing auth check. Any user can delete any post.
+        ...
+```
+
+## Reply APIs
+
+Greptile comments come from two different GitHub endpoints:
+
+**Line-level comments** (pull request review comments):
+```bash
+gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
+  -f body="Fixed in commit abc1234."
+```
+
+**Top-level comments** (issue comments):
+```bash
+gh api repos/$REPO/issues/$PR_NUMBER/comments \
+  -f body="This is already handled by..."
+```
+
+gstack uses the correct endpoint automatically based on comment source.
+
+<Note>
+If a reply POST fails (PR closed, no write permission), gstack warns and continues. A failed reply doesn't stop the workflow.
+</Note>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Let gstack handle triage">
+    Don't manually reply to Greptile comments. Let `/review` or `/ship` triage them.
+    
+    This ensures:
+    - False positives get saved to history
+    - Fixes are committed with descriptive messages
+    - Tests re-run after fixes
+  </Accordion>
+
+  <Accordion title="Mark false positives correctly">
+    When Greptile flags something incorrectly, choose "Reply explaining" (option A).
+    
+    This:
+    - Teaches Greptile for next time (their ML improves)
+    - Saves the pattern to suppress future noise
+    - Documents why it's not an issue
+  </Accordion>
+
+  <Accordion title="Fix valid issues immediately">
+    When Greptile finds a real bug, fix it before shipping.
+    
+    Greptile is good at catching:
+    - Race conditions
+    - Missing null checks
+    - Error handling gaps
+    - Security issues
+    
+    These are exactly the bugs `/review` looks for too.
+  </Accordion>
+
+  <Accordion title="Review the history file periodically">
+    Check `~/.gstack/greptile-history.md` monthly:
+    
+    - Are there patterns you're suppressing that should be fixed?
+    - Is Greptile's signal-to-noise improving?
+    - Are there new categories of issues appearing?
+  </Accordion>
+</AccordionGroup>
+
+## Signal-to-Noise Tracking
+
+The `/retro` skill tracks Greptile's batting average over time:
+
+```
+You: /retro
+
+Claude: Week of Mar 8-14: 47 commits, 12 PRs
+        
+        Greptile Review Stats:
+        - 14 comments across 5 PRs
+        - 8 valid (57%) — 6 fixed, 2 acknowledged
+        - 4 false positives (29%)
+        - 2 already fixed (14%)
+        
+        Signal improving: 45% valid last week → 57% this week
+        
+        Top categories:
+        1. race-condition (4 valid, 0 FP)
+        2. null-check (2 valid, 1 FP)  
+        3. error-handling (1 valid, 2 FP) ← high FP rate
+        
+        Recommendation: Review FP patterns for error-handling.
+        May need to tune Greptile config or improve code comments.
+```
+
+This helps you:
+- See if Greptile is getting better over time
+- Identify categories with high FP rates
+- Decide whether to adjust your coding patterns or Greptile's config
+
+## Common Greptile Findings
+
+### Race Conditions
+
+**What Greptile catches:**
+```ruby
+if user.balance >= amount
+  user.update!(balance: user.balance - amount)  # Race here
+end
+```
+
+**Why it's valid:**
+Between the check (line 1) and the write (line 2), another request could pass the check too. Both debit the balance.
+
+**Fix:**
+```ruby
+User.with_advisory_lock("balance-#{user.id}") do
+  if user.balance >= amount
+    user.update!(balance: user.balance - amount)
+  end
+end
+```
+
+### Missing Null Checks
+
+**What Greptile catches:**
+```ruby
+def full_name
+  "#{first_name} #{last_name}".strip
+end
+```
+
+**Why it's valid:**
+If `first_name` or `last_name` is nil, this returns `" "` (space) instead of empty string or nil.
+
+**Fix:**
+```ruby
+def full_name
+  [first_name, last_name].compact.join(" ")
+end
+```
+
+### Error Handling Gaps
+
+**What Greptile catches:**
+```ruby
+def fetch_data
+  response = HTTP.get(url)
+  JSON.parse(response.body)
+end
+```
+
+**Why it's valid:**
+- HTTP.get could timeout (no rescue)
+- response.body could be empty (JSON.parse raises)
+- Network could fail (no error handling)
+
+**Fix:**
+```ruby
+def fetch_data
+  response = HTTP.timeout(5).get(url)
+  JSON.parse(response.body)
+rescue HTTP::TimeoutError => e
+  Rails.logger.error("Timeout fetching #{url}: #{e}")
+  nil
+rescue JSON::ParserError => e
+  Rails.logger.error("Invalid JSON from #{url}: #{e}")
+  nil
+end
+```
+
+### Security Issues
+
+**What Greptile catches:**
+```ruby
+def search
+  query = params[:q]
+  @results = Post.where("title LIKE '%#{query}%'")  # SQL injection
+end
+```
+
+**Why it's valid:**
+User input flows directly into SQL without sanitization.
+
+**Fix:**
+```ruby
+def search
+  query = params[:q]
+  @results = Post.where("title LIKE ?", "%#{query}%")  # Parameterized
+end
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Greptile comments not showing up">
+    **Possible causes:**
+    - PR doesn't exist yet (`/ship` creates it at Step 8, Greptile triage is Step 3.75)
+    - Greptile hasn't reviewed the PR yet (wait 1-2 minutes)
+    - Greptile found no issues
+    
+    **Check:**
+    ```bash
+    gh pr view --web  # Look for greptile-apps[bot] comments
+    ```
+  </Accordion>
+
+  <Accordion title="All comments marked as false positives">
+    If Greptile consistently misunderstands your codebase:
+    - Add more code comments explaining non-obvious patterns
+    - Check Greptile's config at greptile.com
+    - Consider tuning its sensitivity
+    
+    Or: your code might have real issues that look like false positives.
+  </Accordion>
+
+  <Accordion title="Reply POST fails">
+    **Error:** `gh api` returns 403 or 404
+    
+    **Cause:** PR was closed or merged before reply sent
+    
+    **Solution:** gstack warns and continues. Not a critical failure.
+  </Accordion>
+
+  <Accordion title="History file corrupted">
+    If `~/.gstack/greptile-history.md` has malformed lines, gstack skips those lines and continues.
+    
+    **Fix:** Edit the file manually, or delete it to start fresh.
+  </Accordion>
+</AccordionGroup>
+
+## Manual Triage (Without gstack)
+
+If you want to triage Greptile manually:
+
+<Steps>
+  <Step title="View comments">
+    ```bash
+    gh pr view --web
+    # Or via API:
+    gh api repos/OWNER/REPO/pulls/PR/comments | jq '.[] | select(.user.login == "greptile-apps[bot]")'
+    ```
+  </Step>
+
+  <Step title="Classify each comment">
+    - Read the code Greptile is flagging
+    - Valid? Fix it.
+    - Already fixed? Reply: "Fixed in commit abc1234"
+    - False positive? Reply explaining why
+  </Step>
+
+  <Step title="Track false positives">
+    Add to `~/.gstack/greptile-history.md` manually:
+    ```
+    2026-03-14 | you/repo | fp | path/to/file.rb | category
+    ```
+  </Step>
+</Steps>
+
+But honestly, just let `/review` or `/ship` handle it. It's faster and more consistent.
+
+## Next Steps
+
+- [Code Review Guide](/guides/code-review) - How `/review` finds structural bugs
+- [End-to-End Feature Workflow](/guides/feature-workflow) - Full dev cycle with Greptile
+- [Greptile Documentation](https://docs.greptile.com) - Official Greptile docs

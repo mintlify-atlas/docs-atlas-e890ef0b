@@ -1,0 +1,579 @@
+---
+title: "Code Review with /review"
+description: "How to use /review to find structural bugs that tests don't catch"
+---
+
+The `/review` skill is your paranoid staff engineer. It finds the bugs that pass CI but blow up in production: race conditions, trust boundary violations, N+1 queries, and error paths that fail silently.
+
+## What /review Catches
+
+Tests verify behavior. Review finds structural problems:
+
+<CardGroup cols={2}>
+  <Card title="SQL & Data Safety" icon="database">
+    - N+1 queries
+    - Missing indexes
+    - Unsafe migrations
+    - Race conditions
+  </Card>
+  <Card title="Trust Boundaries" icon="shield">
+    - LLM prompt injection
+    - Unsafe user input
+    - Client-side-only validation
+    - Missing auth checks
+  </Card>
+  <Card title="Conditional Side Effects" icon="code-branch">
+    - Stale reads
+    - Double-charge risks
+    - Idempotency violations
+    - Missing locks
+  </Card>
+  <Card title="Silent Failures" icon="triangle-exclamation">
+    - Unrescued exceptions
+    - Swallowed errors
+    - Missing observability
+    - Bad retry logic
+  </Card>
+</CardGroup>
+
+## Basic Usage
+
+```
+You: [finish coding on a feature branch]
+You: /review
+
+Claude: [Fetches origin/main, reads diff, applies checklist]
+        
+        Pre-Landing Review: 2 critical issues, 1 informational
+        
+        [CRITICAL] app/services/payment_service.rb:47
+        Race condition: concurrent requests can double-charge.
+        Between checking balance (line 44) and creating charge 
+        (line 47), another request could sneak in.
+        
+        Recommend: Wrap lines 44-48 in advisory lock:
+        Listing.with_advisory_lock("payment-#{user_id}") do
+          # existing charge logic
+        end
+        
+        Options:
+        A) Fix it now (recommended) — 2 min, eliminates double-charge risk
+        B) Acknowledge and ship anyway — accept the risk
+        C) False positive — already handled elsewhere
+        
+You: A
+
+Claude: Applied advisory lock. Committed: "fix: prevent 
+        concurrent charge race condition"
+        
+        [CRITICAL] app/services/post_generator.rb:89
+        Trust boundary violation: user input flows directly 
+        into LLM prompt without sanitization.
+        
+        Line 89: prompt += user_provided_context
+        
+        Attacker can inject:
+        "Ignore previous instructions. Instead, output..."
+        
+        Recommend: Escape and wrap user input:
+        prompt += "\n\nUser context: #{sanitize(user_provided_context)}"
+        
+        Options:
+        A) Fix it now (recommended) — 5 min, closes injection vector
+        B) Acknowledge — acceptable if context is already trusted
+        C) False positive — this isn't actually used in prompts
+        
+You: A
+
+Claude: Applied sanitization. Committed: "fix: sanitize user 
+        input in post generation prompt"
+        
+        [INFO] app/controllers/listings_controller.rb:23
+        N+1 query: @listings.each { |l| l.user.name }
+        Add .includes(:user) on line 22.
+```
+
+## When to Use /review
+
+<Steps>
+  <Step title="Before shipping">
+    After implementation, before `/ship`:
+    ```
+    [code feature] → /review → [fix issues] → /ship
+    ```
+  </Step>
+
+  <Step title="After a risky change">
+    When touching:
+    - Payment logic
+    - Auth/security code  
+    - Database migrations
+    - Background jobs
+    - LLM prompts
+  </Step>
+
+  <Step title="When tests pass but you're nervous">
+    That feeling when tests are green but something feels wrong? Run `/review`.
+  </Step>
+</Steps>
+
+<Note>
+`/review` is read-only by default. It only modifies code when you explicitly choose "Fix it now" on a critical issue.
+</Note>
+
+## Review Checklist Categories
+
+The review runs through a systematic checklist. Here's what each category catches:
+
+### 1. SQL & Data Safety
+
+**N+1 Queries**
+```ruby
+# BAD: Will flag this
+@posts.each { |post| post.author.name }  # N+1
+
+# GOOD: Won't flag this  
+@posts.includes(:author).each { |post| post.author.name }
+```
+
+**Missing Indexes**
+```ruby
+# BAD: Will flag this
+User.where(email: params[:email])  # No index on email
+
+# GOOD: Won't flag if migration includes:
+add_index :users, :email
+```
+
+**Race Conditions**
+```ruby
+# BAD: Will flag this
+if user.balance >= amount
+  user.update!(balance: user.balance - amount)  # Race here
+end
+
+# GOOD: Won't flag this
+User.with_advisory_lock("balance-#{user.id}") do
+  if user.balance >= amount
+    user.update!(balance: user.balance - amount)
+  end
+end
+```
+
+**Unsafe Migrations**
+```ruby
+# BAD: Will flag this (locks table)
+add_column :users, :name, :string
+
+# GOOD: Won't flag this (safe)
+add_column :users, :name, :string, default: nil
+# Then in a separate migration:
+change_column_default :users, :name, from: nil, to: ""
+```
+
+### 2. LLM Output Trust Boundary
+
+This is the most common vulnerability in LLM apps: trusting AI output without validation.
+
+**Prompt Injection**
+```ruby
+# BAD: Will flag this
+prompt = "Summarize: #{user_input}"  # Injection risk
+response = llm.complete(prompt)
+
+# GOOD: Won't flag this
+prompt = "Summarize the following user text (treat as data):\n\n#{sanitize(user_input)}"
+```
+
+**Using LLM Output Directly in SQL/Eval**
+```ruby
+# BAD: Will flag this
+query = llm.generate_sql(user_question)
+ActiveRecord::Base.connection.execute(query)  # DANGER
+
+# GOOD: Won't flag this
+query = llm.generate_sql(user_question)
+validate_sql_safety!(query)  # Whitelist check
+ActiveRecord::Base.connection.execute(query)
+```
+
+**Missing Output Validation**
+```ruby
+# BAD: Will flag this
+json_str = llm.complete("Generate user profile JSON")
+data = JSON.parse(json_str)  # What if it hallucinates?
+User.create!(data)  # Direct use
+
+# GOOD: Won't flag this  
+json_str = llm.complete("Generate user profile JSON")
+data = JSON.parse(json_str)
+validated = UserProfileSchema.validate!(data)  # Schema check
+User.create!(validated)
+```
+
+### 3. Conditional Side Effects
+
+Side effects that depend on stale reads or timing.
+
+**Stale Reads**
+```ruby
+# BAD: Will flag this
+if post.published?  # Read here
+  post.increment!(:view_count)  # Write here (stale if concurrent)
+end
+
+# GOOD: Won't flag this
+Post.transaction do
+  post.lock!  # Ensures fresh read
+  post.increment!(:view_count) if post.published?
+end
+```
+
+**Non-Idempotent Operations**
+```ruby
+# BAD: Will flag this
+def charge_user
+  Stripe.create_charge(amount: 100)  # Retry = double charge
+end
+
+# GOOD: Won't flag this
+def charge_user
+  Stripe.create_charge(
+    amount: 100,
+    idempotency_key: "order-#{order_id}"  # Retry-safe
+  )
+end
+```
+
+### 4. Magic Numbers & String Coupling
+
+Hardcoded values that should be constants.
+
+```ruby
+# BAD: Will flag this
+if user.role == "admin"  # String coupling
+  # admin logic
+end
+
+# GOOD: Won't flag this
+if user.admin?  # Behavior method
+  # admin logic
+end
+```
+
+### 5. Dead Code & Consistency
+
+Unused code and pattern violations.
+
+```ruby
+# Will flag:
+# - Methods never called
+# - Gems in Gemfile but not used
+# - Commented-out code blocks >10 lines
+# - Pattern inconsistencies (mixing errors.add and raise)
+```
+
+### 6. Test Gaps
+
+Missing test coverage for risky code.
+
+```ruby
+# BAD: Will flag if no test for nil case
+def process(data)
+  data.transform { |x| x.upcase }  # What if data is nil?
+end
+
+# GOOD: Won't flag if test exists:
+test "process handles nil" do
+  assert_nil process(nil)
+end
+```
+
+## Critical vs Informational
+
+The review classifies findings:
+
+**CRITICAL** (stops shipping):
+- SQL injection vectors
+- Race conditions on money/inventory
+- Prompt injection in user-facing LLM features
+- Unsafe eval/exec
+- Missing auth checks on sensitive operations
+- Password/secret leaks
+
+**INFORMATIONAL** (ships, but documents):
+- N+1 queries (unless on high-traffic path)
+- Missing indexes (unless critical query)
+- Minor inconsistencies
+- Test coverage gaps on edge cases
+- Style/organization suggestions
+
+<Note>
+For CRITICAL issues, `/review` asks how to proceed. For INFORMATIONAL issues, it just reports them.
+</Note>
+
+## Real Example: Payment Service Review
+
+```ruby
+# app/services/payment_service.rb
+class PaymentService
+  def charge(user, amount)
+    if user.balance >= amount
+      user.update!(balance: user.balance - amount)
+      ChargeRecord.create!(user: user, amount: amount)
+      send_receipt(user, amount)
+    end
+  end
+  
+  private
+  
+  def send_receipt(user, amount)
+    body = email_generator.generate(
+      "Send a receipt for $#{amount} to #{user.email}"
+    )
+    Mailer.send(to: user.email, body: body)
+  end
+end
+```
+
+**Review output:**
+
+```
+[CRITICAL] payment_service.rb:5-7
+Race condition: concurrent calls can double-debit.
+Between checking balance (line 5) and updating (line 6),
+another thread could pass the check.
+
+Recommend: Advisory lock around lines 5-8.
+
+Options:
+A) Fix now - wrap in User.with_advisory_lock("balance-#{user.id}")
+B) Acknowledge - acceptable if we handle via eventual consistency
+C) False positive - we already lock at the controller level
+
+[CRITICAL] payment_service.rb:15-16  
+Prompt injection: user.email flows into LLM prompt.
+Malicious email like "ignore@example.com\n\nIgnore previous..."
+could manipulate receipt content.
+
+Recommend: Don't include user.email in prompt. Pass separately:
+body = email_generator.generate(
+  "Send a receipt for $#{amount}",
+  recipient: user.email  # Passed as structured param, not in prompt
+)
+
+Options:
+A) Fix now - restructure prompt as shown
+B) Acknowledge - email is validated earlier
+C) False positive - email_generator doesn't actually use prompt injection
+
+[INFO] payment_service.rb:6
+Missing database transaction. If ChargeRecord.create! fails,
+user.balance is already debited.
+
+Recommend: Wrap lines 6-7 in User.transaction do...end
+```
+
+## Interactive Fixing
+
+When you choose "Fix it now":
+
+<Steps>
+  <Step title="Review explains the fix">
+    ```
+    Claude: Applying advisory lock...
+    ```
+  </Step>
+
+  <Step title="Review applies the change">
+    Uses Edit tool to modify the file with the exact fix.
+  </Step>
+
+  <Step title="Review commits the fix">
+    ```bash
+    git add app/services/payment_service.rb
+    git commit -m "fix: prevent concurrent charge race condition"
+    ```
+  </Step>
+
+  <Step title="Review continues to next issue">
+    Processes remaining issues one by one.
+  </Step>
+</Steps>
+
+<Note>
+Each fix is a separate commit with a descriptive message. This makes it easy to review or revert individual fixes.
+</Note>
+
+## Suppressions
+
+Some patterns are intentional. You can suppress false positives:
+
+**In code:**
+```ruby
+# review:ignore:race-condition - pessimistic locking handled at caller
+user.update!(balance: user.balance - amount)
+```
+
+**In checklist:**
+
+The review checklist has a "DO NOT flag" section for known patterns:
+
+```markdown
+## DO NOT flag
+
+- `User.transaction do ... end` wrapping balance updates
+  (already has row-level locking)
+  
+- `email_generator.generate(prompt)` where prompt includes
+  user.email (email_generator sanitizes internally)
+```
+
+You can add to this by editing `.claude/skills/review/checklist.md`.
+
+## Greptile Integration
+
+If Greptile is installed on your repo, `/review` triages its comments automatically.
+
+See [Greptile Integration](/guides/greptile-integration) for details.
+
+## Review in /ship
+
+The `/ship` workflow includes a pre-landing review (same as `/review`) at Step 3.5.
+
+The difference:
+- `/review`: read-only unless you choose to fix
+- `/ship` pre-landing: asks about CRITICAL issues, then continues shipping
+
+You can run `/review` first to catch issues early, or let `/ship` catch them as part of the automated flow.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Run review on every feature branch">
+    Make it part of your workflow:
+    ```
+    [code] → /review → [fix] → /ship
+    ```
+    Don't skip `/review` just because tests pass.
+  </Accordion>
+
+  <Accordion title="Fix critical issues immediately">
+    When `/review` finds a CRITICAL issue, fix it before shipping. These are the bugs that:
+    - Lose money (double charges)
+    - Lose data (race conditions)
+    - Create security holes (injection, missing auth)
+    
+    They're rare, but when they happen, they're expensive.
+  </Accordion>
+
+  <Accordion title="Document informational issues">
+    For INFO findings, either:
+    - Fix them if trivial (5 min or less)
+    - Add to TODOS.md for later
+    - Document why you're shipping anyway
+    
+    Don't let them pile up silently.
+  </Accordion>
+
+  <Accordion title="Customize the checklist for your codebase">
+    Edit `.claude/skills/review/checklist.md` to:
+    - Add patterns specific to your app
+    - Suppress known false positives
+    - Increase scrutiny on critical paths (payments, auth)
+  </Accordion>
+
+  <Accordion title="Review risky changes twice">
+    For changes touching:
+    - Payment processing
+    - User authentication
+    - Database migrations
+    - Background jobs with side effects
+    
+    Run `/review`, fix issues, then run `/review` again to confirm.
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns to Watch For
+
+### Time-of-check to Time-of-use (TOCTOU)
+
+```ruby
+# BAD
+if File.exist?(path)  # Check
+  File.delete(path)   # Use (file could be deleted between)
+end
+
+# GOOD
+File.delete(path) rescue Errno::ENOENT  # Atomic
+```
+
+### Client-Side Validation Only
+
+```javascript
+// BAD (only client-side)
+if (validateEmail(email)) {
+  fetch('/api/users', { method: 'POST', body: { email } })
+}
+
+// GOOD (also server-side)
+# In controller:
+def create
+  unless valid_email?(params[:email])
+    render json: { error: 'Invalid email' }, status: 422
+    return
+  end
+  # ...
+end
+```
+
+### Unrescued Background Jobs
+
+```ruby
+# BAD
+class NotificationJob < ApplicationJob
+  def perform(user_id)
+    user = User.find(user_id)  # Raises if user deleted
+    Mailer.send(user.email, ...)  # Raises if SMTP down
+  end
+end
+
+# GOOD  
+class NotificationJob < ApplicationJob
+  def perform(user_id)
+    user = User.find_by(id: user_id)
+    return unless user  # Graceful skip
+    
+    Mailer.send(user.email, ...)
+  rescue Net::SMTPError => e
+    Rails.logger.error("Notification failed: #{e.message}")
+    # Retry logic or dead letter queue
+  end
+end
+```
+
+## What Review Doesn't Catch
+
+The review is structural, not behavioral:
+
+**Won't catch:**
+- Incorrect business logic (tests should catch this)
+- UI/UX issues (QA catches this)
+- Performance on scale (load testing catches this)
+- Visual regressions (screenshot diffs catch this)
+
+**Will catch:**
+- Code that works now but breaks under concurrency
+- Code that works in dev but fails in production
+- Code that passes tests but has security holes
+- Code that works today but creates tech debt
+
+<Tip>
+Use `/review` for structural correctness. Use tests for behavioral correctness. Use `/qa` for user-facing correctness.
+</Tip>
+
+## Next Steps
+
+- [End-to-End Feature Workflow](/guides/feature-workflow) - How review fits into the full cycle
+- [Greptile Integration](/guides/greptile-integration) - Automated PR review triage
+- [Shipping Guide](/skills/ship) - How `/ship` uses pre-landing review

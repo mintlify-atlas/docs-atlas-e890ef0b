@@ -1,0 +1,206 @@
+---
+title: "/plan-ceo-review"
+description: "Founder mode plan review - rethink the problem and find the 10-star product"
+---
+
+## What it does
+
+`/plan-ceo-review` is your **founder mode** skill. It doesn't take your request literally - it asks a more important question first: **What is this product actually for?**
+
+This is where you want the model to think with taste, ambition, user empathy, and a long time horizon. The point is not to implement the obvious ticket. The point is to rethink the problem from the user's point of view and find the version that feels inevitable, delightful, and maybe even a little magical.
+
+<Note>
+Think of this as **Brian Chesky mode** - finding the 10-star product hiding inside your request.
+</Note>
+
+## When to use it
+
+Use `/plan-ceo-review` when you want to:
+- Challenge the premise of a feature request
+- Find the bigger product opportunity hiding inside a small ask
+- Ensure you're building the right thing before diving into implementation
+- Think from the user's perspective, not just the technical requirements
+- Explore what the 10-star version of this feature looks like
+
+## How it works
+
+The skill operates in three distinct modes:
+
+### SCOPE EXPANSION (dream big)
+- Push scope UP to find the platonic ideal
+- Run the "10x check" - what's 10x more ambitious for 2x the effort?
+- Identify delight opportunities that make users say "oh nice, they thought of that"
+- Build the cathedral, not just a feature
+
+### HOLD SCOPE (maximum rigor)
+- Accept the plan's scope as-is
+- Make it bulletproof - catch every failure mode, test every edge case
+- Ensure observability, map every error path
+- Do not silently reduce OR expand
+
+### SCOPE REDUCTION (strip to essentials)
+- Find the minimum viable version that achieves the core outcome
+- Cut everything else ruthlessly
+- Focus on shipping value, not features
+
+## Real example
+
+From the README:
+
+```bash
+You:   [enter plan mode, describe the feature]
+       I want to add seller photo upload to the listing app. Sellers
+       should be able to upload a photo of their item and we create
+       the listing from it.
+
+You:   /plan-ceo-review
+
+Claude: "Photo upload" is not the feature. The real job is helping sellers
+        create listings that actually sell. Here's what the 10-star version
+        looks like: auto-identify the product from the photo, pull specs and
+        pricing comps from the web, draft the title and description, suggest
+        the best hero image...
+```
+
+<Warning>
+The skill will challenge your assumptions. That's the point. If you want rubber-stamping, this isn't it.
+</Warning>
+
+## What you'll get
+
+A comprehensive review covering:
+
+<Steps>
+  <Step title="Step 0: Nuclear Scope Challenge">
+    - Is this the right problem to solve?
+    - What's the actual user/business outcome?
+    - What would happen if we did nothing?
+    - Mode selection (EXPANSION / HOLD SCOPE / REDUCTION)
+  </Step>
+  
+  <Step title="10 Review Sections">
+    1. **Architecture Review** - System design, data flow, state machines, diagrams
+    2. **Error & Rescue Map** - Every failure mode explicitly mapped and handled
+    3. **Security & Threat Model** - Attack surface, input validation, trust boundaries
+    4. **Data Flow & Interaction Edge Cases** - Nil paths, empty paths, error paths
+    5. **Code Quality Review** - DRY violations, naming, complexity
+    6. **Test Review** - Complete test diagram for every new codepath
+    7. **Performance Review** - N+1 queries, indexes, caching, slow paths
+    8. **Observability & Debuggability** - Logging, metrics, tracing, alerting
+    9. **Deployment & Rollout** - Migration safety, feature flags, rollback plan
+    10. **Long-Term Trajectory** - Technical debt, reversibility, 12-month vision
+  </Step>
+  
+  <Step title="Required Outputs">
+    - "NOT in scope" section with explicit deferrals
+    - "What already exists" analysis
+    - Error & Rescue Registry (every exception class mapped)
+    - Failure Modes Registry (any silent failure = CRITICAL GAP)
+    - TODOS.md updates with full context
+    - Mandatory ASCII diagrams
+  </Step>
+</Steps>
+
+## Example workflow
+
+Here's how `/plan-ceo-review` fits into a complete feature workflow:
+
+```bash
+# 1. Start with founder thinking
+You:   /plan-ceo-review
+Claude: [Challenges scope, proposes 10-star version]
+
+# 2. Lock in technical execution
+You:   /plan-eng-review
+Claude: [Architecture, state machines, test matrix]
+
+# 3. Implement
+# ... write the code ...
+
+# 4. Paranoid review
+You:   /review
+Claude: [Structural audit, race conditions, trust boundaries]
+
+# 5. Ship it
+You:   /ship
+Claude: [Tests, version bump, PR created]
+```
+
+## Interactive questioning
+
+The skill asks questions one at a time with:
+- 2-3 concrete lettered options
+- Clear recommendation stated FIRST
+- 1-2 sentence explanation of WHY
+- Mapped to your engineering preferences
+
+Example format:
+```
+We recommend B: Add advisory lock around payment charge.
+Here's why: Prevents double-charge race condition (trust boundary violation).
+
+A) Do nothing - assume single-threaded execution
+B) Add advisory lock around payment charge (recommended)
+C) Move to background job with idempotency key
+```
+
+<Note>
+Every AskUserQuestion includes your option as a directive, not a menu. The skill is opinionated.
+</Note>
+
+## Prime directives
+
+The skill operates under these non-negotiable rules:
+
+1. **Zero silent failures** - Every failure mode must be visible
+2. **Every error has a name** - No `rescue StandardError`
+3. **Data flows have shadow paths** - Trace nil, empty, zero-length, and error paths
+4. **Diagrams are mandatory** - ASCII art for every non-trivial flow
+5. **Everything deferred must be written down** - TODOS.md or it doesn't exist
+6. **Optimize for 6-month future** - Not just today's problem
+
+## Output format
+
+At completion, you'll get a summary table:
+
+```
++====================================================================+
+|            MEGA PLAN REVIEW — COMPLETION SUMMARY                   |
++====================================================================+
+| Mode selected        | EXPANSION / HOLD / REDUCTION                |
+| System Audit         | [key findings]                              |
+| Step 0               | [mode + key decisions]                      |
+| Section 1  (Arch)    | ___ issues found                            |
+| Section 2  (Errors)  | ___ error paths mapped, ___ GAPS            |
+| Section 3  (Security)| ___ issues found, ___ High severity         |
+| ...
++====================================================================+
+```
+
+## Tips
+
+<Accordion title="When to use EXPANSION mode">
+- Greenfield features where ambition matters
+- User-facing features where delight creates competitive advantage
+- When you want to challenge yourself to think bigger
+- When "wouldn't it be cool if" is actually valuable exploration
+</Accordion>
+
+<Accordion title="When to use HOLD SCOPE mode">
+- Bug fixes or hotfixes
+- Refactors where scope is already right-sized
+- Plans touching >15 files (complexity smell)
+- When you need rigor, not expansion
+</Accordion>
+
+<Accordion title="When to use REDUCTION mode">
+- Overbuilt plans that lost sight of core value
+- When you need to ship fast
+- When the plan is solving a proxy problem, not the real one
+</Accordion>
+
+## Related skills
+
+- [`/plan-eng-review`](/skills/plan-eng-review) - Engineering manager mode for locking in technical execution
+- [`/review`](/skills/review) - Pre-landing structural review
+- [`/ship`](/skills/ship) - Automated ship workflow

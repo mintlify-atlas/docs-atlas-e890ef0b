@@ -1,0 +1,434 @@
+---
+title: Visual Commands
+description: Screenshots, PDFs, responsive testing, and visual diffs
+---
+
+Visual commands capture page output as images or PDFs and compare visual differences between pages.
+
+## screenshot
+
+Save full-page screenshot as PNG.
+
+```bash
+browse screenshot [path]
+```
+
+<ParamField path="path" type="string">
+  Output path (default: `/tmp/browse-screenshot.png`). Must be under `/tmp` or current working directory.
+</ParamField>
+
+### Behavior
+
+- Full page screenshot (scrolls to capture everything)
+- PNG format
+- Path validation for security
+- Creates parent directories if needed
+
+### Examples
+
+<CodeGroup>
+
+```bash Basic screenshot
+browse goto https://example.com
+browse screenshot
+```
+
+```txt Output
+Screenshot saved: /tmp/browse-screenshot.png
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Custom path
+browse screenshot /tmp/homepage.png
+```
+
+```txt Output
+Screenshot saved: /tmp/homepage.png
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Screenshot after interaction
+browse goto https://example.com
+browse click "#menu-toggle"
+browse screenshot /tmp/menu-open.png
+```
+
+</CodeGroup>
+
+<Warning>
+**Path restrictions**: Screenshots can only be saved to `/tmp` or the current working directory to prevent writing to arbitrary locations.
+</Warning>
+
+---
+
+## pdf
+
+Save page as PDF.
+
+```bash
+browse pdf [path]
+```
+
+<ParamField path="path" type="string">
+  Output path (default: `/tmp/browse-page.pdf`). Must be under `/tmp` or current working directory.
+</ParamField>
+
+### Behavior
+
+- A4 format
+- Includes headers and footers
+- Full page content
+- Path validation enforced
+
+### Examples
+
+<CodeGroup>
+
+```bash Save as PDF
+browse goto https://example.com/article
+browse pdf /tmp/article.pdf
+```
+
+```txt Output
+PDF saved: /tmp/article.pdf
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Archive documentation
+browse goto https://docs.example.com/guide
+browse pdf /tmp/guide-$(date +%Y%m%d).pdf
+```
+
+</CodeGroup>
+
+---
+
+## responsive
+
+Capture screenshots at mobile, tablet, and desktop sizes.
+
+```bash
+browse responsive [prefix]
+```
+
+<ParamField path="prefix" type="string">
+  Output path prefix (default: `/tmp/browse-responsive`). Saves as `{prefix}-mobile.png`, `{prefix}-tablet.png`, `{prefix}-desktop.png`.
+</ParamField>
+
+### Viewports
+
+| Device | Size | Output |
+|--------|------|--------|
+| Mobile | 375x812 | `{prefix}-mobile.png` |
+| Tablet | 768x1024 | `{prefix}-tablet.png` |
+| Desktop | 1280x720 | `{prefix}-desktop.png` |
+
+### Behavior
+
+- Captures full page at each viewport
+- Restores original viewport after completion
+- All three screenshots or none (atomic operation)
+
+### Examples
+
+<CodeGroup>
+
+```bash Responsive screenshots
+browse goto https://example.com
+browse responsive /tmp/example
+```
+
+```txt Output
+mobile (375x812): /tmp/example-mobile.png
+tablet (768x1024): /tmp/example-tablet.png
+desktop (1280x720): /tmp/example-desktop.png
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Test responsive design
+browse goto https://app.example.com/dashboard
+browse responsive /tmp/dashboard-$(date +%Y%m%d)
+```
+
+```txt Output
+mobile (375x812): /tmp/dashboard-20260314-mobile.png
+tablet (768x1024): /tmp/dashboard-20260314-tablet.png
+desktop (1280x720): /tmp/dashboard-20260314-desktop.png
+```
+
+</CodeGroup>
+
+<Tip>
+Use `responsive` for quick visual regression testing across devices. Combine with image diff tools like ImageMagick for automated comparison.
+</Tip>
+
+---
+
+## diff
+
+Text diff between two pages.
+
+```bash
+browse diff <url1> <url2>
+```
+
+<ParamField path="url1" type="string" required>
+  First URL to compare
+</ParamField>
+
+<ParamField path="url2" type="string" required>
+  Second URL to compare
+</ParamField>
+
+### Behavior
+
+- Navigates to each URL
+- Extracts cleaned text (via `text` command)
+- Performs unified diff
+- Shows added (+), removed (-), and unchanged ( ) lines
+
+### Examples
+
+<CodeGroup>
+
+```bash Compare staging vs production
+browse diff https://staging.example.com https://example.com
+```
+
+```diff Output
+--- https://staging.example.com
++++ https://example.com
+
+  Example Domain
+  This domain is for use in illustrative examples in documents.
+- Beta Feature: Try our new dashboard!
++ Special Offer: 50% off premium plans
+  More information...
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Compare different pages
+browse diff https://example.com/v1/docs https://example.com/v2/docs
+```
+
+```diff Output
+--- https://example.com/v1/docs
++++ https://example.com/v2/docs
+
+  Documentation
+- Old API Reference
+- Deprecated Methods
++ New API Reference
++ Modern Authentication
++ WebSocket Support
+```
+
+</CodeGroup>
+
+<Note>
+The `diff` command uses text-based comparison. For visual diffs, use `screenshot` + external image diff tools.
+</Note>
+
+---
+
+## Snapshot with Annotation
+
+The `snapshot` command can generate annotated screenshots with ref labels.
+
+```bash
+browse snapshot -a [-o <path>]
+```
+
+<ParamField path="-a, --annotate" type="flag">
+  Generate annotated screenshot with red overlay boxes and ref labels
+</ParamField>
+
+<ParamField path="-o, --output" type="string">
+  Output path (default: `/tmp/browse-annotated.png`)
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Annotated snapshot
+browse goto https://example.com
+browse snapshot -i -a -o /tmp/annotated.png
+```
+
+```txt Output
+@e1 [link] "More information..."
+@e2 [button] "Click here"
+
+[annotated screenshot: /tmp/annotated.png]
+```
+
+</CodeGroup>
+
+<Tip>
+Use annotated screenshots to visually verify that refs map to the correct elements. Helpful for debugging complex pages.
+</Tip>
+
+---
+
+## Common Patterns
+
+### Visual Regression Testing
+
+```bash
+# Capture baseline
+browse goto https://example.com
+browse responsive /tmp/baseline/homepage
+
+# After changes, capture new version
+browse goto https://staging.example.com
+browse responsive /tmp/new/homepage
+
+# Compare with ImageMagick
+compare /tmp/baseline/homepage-mobile.png /tmp/new/homepage-mobile.png /tmp/diff-mobile.png
+```
+
+### Multi-Page PDF Report
+
+```bash
+# Capture multiple pages as PDFs
+browse goto https://example.com/page1
+browse pdf /tmp/page1.pdf
+
+browse goto https://example.com/page2
+browse pdf /tmp/page2.pdf
+
+# Combine with external tool
+pdfunite /tmp/page1.pdf /tmp/page2.pdf /tmp/report.pdf
+```
+
+### Screenshot Before/After
+
+```bash
+# Before interaction
+browse goto https://example.com
+browse screenshot /tmp/before.png
+
+# Interact
+browse click "#toggle-theme"
+
+# After interaction
+browse screenshot /tmp/after.png
+```
+
+### Content Change Detection
+
+```bash
+# Baseline
+browse goto https://example.com/news
+browse text > /tmp/baseline.txt
+
+# Later...
+browse goto https://example.com/news
+browse text > /tmp/current.txt
+
+# Compare
+diff /tmp/baseline.txt /tmp/current.txt
+```
+
+### Environment Comparison
+
+```bash
+# Compare staging vs production content
+browse diff https://staging.example.com/api/docs https://example.com/api/docs > api-diff.txt
+
+# Compare staging vs production visually
+browse goto https://staging.example.com
+browse screenshot /tmp/staging.png
+
+browse goto https://example.com
+browse screenshot /tmp/production.png
+```
+
+---
+
+## Integration with External Tools
+
+### ImageMagick (Visual Diff)
+
+```bash
+# Capture screenshots
+browse goto https://example.com
+browse screenshot /tmp/v1.png
+
+browse goto https://staging.example.com
+browse screenshot /tmp/v2.png
+
+# Generate visual diff
+compare /tmp/v1.png /tmp/v2.png /tmp/diff.png
+```
+
+### PDF Manipulation
+
+```bash
+# Save as PDF
+browse goto https://example.com/docs
+browse pdf /tmp/docs.pdf
+
+# Extract text with pdftotext
+pdftotext /tmp/docs.pdf /tmp/docs.txt
+
+# Compress with Ghostscript
+gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook \
+   -dNOPAUSE -dQUIET -dBATCH -sOutputFile=/tmp/docs-compressed.pdf /tmp/docs.pdf
+```
+
+### Automated Testing
+
+```bash
+#!/bin/bash
+# Visual regression test script
+
+BASE_URL="https://example.com"
+PAGES=("home" "about" "contact")
+
+for page in "${PAGES[@]}"; do
+  browse goto "$BASE_URL/$page"
+  browse responsive "/tmp/baseline/$page"
+done
+
+echo "Baseline captured for ${#PAGES[@]} pages"
+```
+
+---
+
+## Performance Notes
+
+| Command | Speed | File Size |
+|---------|-------|----------|
+| `screenshot` | ~2-5s | 100KB-2MB (depends on page) |
+| `pdf` | ~3-7s | 500KB-5MB (depends on content) |
+| `responsive` | ~6-15s | 3 screenshots (300KB-6MB total) |
+| `diff` | ~4-8s | Text output (small) |
+
+<Note>
+Screenshot/PDF generation time depends on page complexity and size. Full-page captures scroll through the entire page, which takes longer for very tall pages.
+</Note>
+
+---
+
+## Related Commands
+
+- [`snapshot -a`](/commands/browse/overview#snapshot-flags) - Annotated screenshots with refs
+- [`viewport`](/commands/browse/interaction#viewport) - Set custom viewport sizes
+- [`wait --load`](/commands/browse/interaction#wait) - Wait for full page load before capture

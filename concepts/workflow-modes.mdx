@@ -1,0 +1,404 @@
+---
+title: Workflow Modes
+description: Understanding the different cognitive modes in gstack
+---
+
+## The Problem with One Generic Mode
+
+Claude Code is powerful, but it's stuck in one mode: generic assistant. It will take your request literally and implement exactly what you said — even when the real product is something bigger, or when you're about to ship a critical bug.
+
+**gstack gives you explicit cognitive gears.** Each mode reshapes Claude's thinking for a specific phase of work:
+
+- **CEO Mode** → Dream big, challenge assumptions, find the 10-star product
+- **Eng Manager Mode** → Nail architecture, draw diagrams, map failure modes
+- **Paranoid Reviewer** → Find bugs that pass CI but fail in production
+- **Release Machine** → Ship fast with zero friction
+
+<Warning>
+**Critical rule:** Once you invoke a mode, Claude commits to it. CEO mode won't reduce scope. Eng Manager mode won't debate product direction. Review mode won't expand scope. Each mode has a specific job — and it does only that job.
+</Warning>
+
+## CEO Mode: `/plan-ceo-review`
+
+### What It Does
+
+Rethinks the problem from first principles. Challenges your request. Asks: **"What is the 10-star product hiding inside this request?"**
+
+This is founder mode — taste, ambition, user empathy, long time horizon. Not implementation. Not technical rigor. Just product vision.
+
+### Three Sub-Modes
+
+CEO mode has three postures (user selects in Step 0):
+
+1. **SCOPE EXPANSION** — Dream big. Find the cathedral hiding inside the shed. Ask "what would make this 10x better for 2x the effort?" The answer to "should we also build X?" is usually yes.
+
+2. **HOLD SCOPE** — The plan's scope is accepted. Make it bulletproof without changing size. Catch failure modes, test edge cases, ensure observability. Don't silently reduce OR expand.
+
+3. **SCOPE REDUCTION** — Surgeon mode. Find the minimum viable version that achieves the core outcome. Cut everything else. Be ruthless.
+
+<Info>
+The mode selection happens **once** at the start (Step 0). After that, Claude commits to it for the entire review. This prevents scope drift.
+</Info>
+
+### Example: Photo Upload Feature
+
+**User request:**
+> "Let sellers upload a photo for their item."
+
+**Weak assistant:**
+> "I'll add a file picker and save the image."
+
+**CEO mode (SCOPE EXPANSION):**
+> "Photo upload" is not the feature. The real job is helping sellers create listings that actually sell. The 10-star version:
+> 
+> - Auto-identify the product from the photo
+> - Pull specs and pricing comps from the web
+> - Draft title and description automatically
+> - Suggest the best hero image
+> - Detect low-quality photos (dark, cluttered, low-trust)
+> - Make the experience feel premium, not like a 2007 form
+
+See how the scope changed? That's CEO mode doing its job.
+
+### When to Use
+
+- You have a feature request but want to pressure-test whether it's the right product
+- You're at the start of a big project and need product direction locked before architecture
+- You suspect you're solving a proxy problem instead of the real problem
+
+### When NOT to Use
+
+- Implementation is already decided and you just need to build it
+- You're fixing a small bug
+- You want technical architecture (use `/plan-eng-review` instead)
+
+### Workflow
+
+```bash
+# Enter plan mode (NOT a slash command)
+User: [enter plan mode in Claude Code]
+User: [describe the feature you want to build]
+
+# Invoke CEO review
+User: /plan-ceo-review
+
+# Claude runs system audit, then asks for mode selection
+Claude: Choose mode:
+  A) SCOPE EXPANSION (dream big)
+  B) HOLD SCOPE (maximum rigor)
+  C) SCOPE REDUCTION (strip to essentials)
+
+User: A
+
+# Claude challenges premises, explores 10-star version
+# Then you exit plan mode and implement (or move to eng review)
+```
+
+<Tip>
+**Use CEO mode FIRST, then Eng Manager mode.** Lock product direction before designing the system. Otherwise you'll design the wrong thing beautifully.
+</Tip>
+
+## Eng Manager Mode: `/plan-eng-review`
+
+### What It Does
+
+Takes a product vision and makes it **buildable**. Produces architecture diagrams, state machines, data flow diagrams, test matrices, and failure mode maps.
+
+This is technical rigor mode — system boundaries, edge cases, error paths, observability. No product ideation. The "what" is already decided; this is the "how."
+
+### Prime Directives (from SKILL.md)
+
+1. **Zero silent failures** — Every failure mode must be visible
+2. **Every error has a name** — Don't say "handle errors," name the exception class
+3. **Data flows have shadow paths** — Map happy path + nil/empty/error paths
+4. **Interactions have edge cases** — Double-click, navigate-away, slow connection, back button
+5. **Observability is scope** — Dashboards, alerts, runbooks are first-class deliverables
+6. **Diagrams are mandatory** — ASCII art for every non-trivial flow
+7. **Everything deferred must be written down** — TODOS.md or it doesn't exist
+8. **Optimize for 6-month future** — Don't solve today's problem while creating next quarter's nightmare
+
+### Example Output
+
+```
+## Architecture: Smart Listing Flow
+
+┌─────────┐   upload   ┌──────────┐  classify  ┌──────────┐
+│ Browser │ ────────→  │ App      │ ────────→  │ Vision   │
+│         │            │ Server   │            │ Model    │
+└─────────┘            └────┬─────┘            └──────────┘
+                            │
+                       enrich ↓
+                    ┌──────────────┐
+                    │ Search API   │  (product specs, comps)
+                    └──────────────┘
+                            │
+                      draft ↓
+                    ┌──────────────┐
+                    │ LLM Draft    │  (title, description)
+                    └──────────────┘
+
+### State Machine
+
+upload_pending → classifying → enriching → drafting → review_ready
+                     ↓              ↓          ↓
+                (low_conf)    (api_fail)  (llm_fail)
+                     ↓              ↓          ↓
+              manual_classify  partial_draft  fallback_draft
+
+### Failure Modes
+
+1. Upload succeeds but enrichment fails → Show partial draft + manual override
+2. Product ID is low-confidence → Manual classification flow
+3. Two tabs race to set cover photo → DB-level advisory lock
+4. Orphaned files from failed uploads → Cron job cleanup after 24h
+5. Web data creates prompt injection → Sanitize all external content
+```
+
+See the level of detail? That's what Eng Manager mode produces.
+
+### When to Use
+
+- After CEO mode locks product direction, before implementation
+- Complex features with multiple system boundaries
+- Anytime you need diagrams, state machines, or failure mode maps
+
+### When NOT to Use
+
+- You're still debating what to build (use `/plan-ceo-review` first)
+- Simple bug fixes that don't need architecture
+
+## Review Mode: `/review`
+
+### What It Does
+
+Structural audit of a ready-to-ship branch. Finds bugs that **pass CI but blow up in production**:
+
+- N+1 queries
+- Race conditions
+- Stale reads
+- Trust boundary violations
+- Missing indexes
+- Bad retry logic
+- Tests that pass while missing the real failure mode
+
+<Warning>
+**Not a style nitpick pass.** Review mode doesn't care about variable names or indentation. It's hunting for production incidents before they happen.
+</Warning>
+
+### Greptile Integration
+
+If you have [Greptile](https://greptile.com) installed on your repo, `/review` automatically triages Greptile's PR comments:
+
+- **Valid issues** → Added to critical findings, fixed before shipping
+- **Already fixed** → Auto-reply acknowledging the catch
+- **False positives** → User confirms, gstack replies explaining why it's wrong
+
+See [Greptile Integration](/guides/greptile-integration) for setup.
+
+### Example Output
+
+```
+## Critical Issues
+
+### 1. Race condition in payment flow
+**File:** app/services/payment_service.rb:47
+**Issue:** Two concurrent charges can double-debit the user.
+**Fix:** Wrap charge block in DB-level advisory lock.
+
+### 2. N+1 query in listing photos
+**File:** app/controllers/listings_controller.rb:23
+**Issue:** Rendering 50 listings → 50 queries for photos.
+**Fix:** Add `.includes(:photos)` to the query.
+
+### 3. Trust boundary violation
+**File:** app/services/draft_generator.rb:12
+**Issue:** Web-scraped data flows into LLM prompt without sanitization.
+**Risk:** Prompt injection from external sources.
+**Fix:** Escape or validate all external content before prompt construction.
+```
+
+### When to Use
+
+- Branch is ready to ship, tests pass
+- After implementation, before `/ship`
+- Anytime you want a structural audit
+
+### When NOT to Use
+
+- Still writing code (too early)
+- Just want to explore architecture (use `/plan-eng-review`)
+
+## Ship Mode: `/ship`
+
+### What It Does
+
+Fully automated release workflow. No questions, no confirmation prompts, just ship:
+
+1. Merge `origin/main` into feature branch
+2. Run full test suite (on merged code)
+3. Pre-landing review (optional: auto-fix or skip)
+4. Triage Greptile comments (if installed)
+5. Version bump (auto-pick PATCH/MICRO for most changes)
+6. Update CHANGELOG (auto-generate from diff)
+7. Commit, push, create PR
+8. Output PR URL
+
+<Info>
+**Fully automated = zero questions.** Ship mode only stops for:
+- Merge conflicts it can't auto-resolve
+- Test failures
+- Greptile review comments needing user decision
+- MAJOR/MINOR version bump (asks first)
+
+Everything else runs straight through.
+</Info>
+
+### When to Use
+
+- Branch is ready, tests pass, want it merged NOW
+- You've already done `/review` and fixed issues
+- Final mile — all the boring release hygiene
+
+### When NOT to Use
+
+- Still writing code
+- Tests are failing (fix them first)
+- You want a review (use `/review` first)
+
+### Example Flow
+
+```bash
+User: /ship
+
+Claude: [Merges origin/main]
+Claude: [Runs tests — 47 pass, 0 failures]
+Claude: [Greptile found 2 comments — 1 valid fix, 1 false positive]
+Claude: [Fixes race condition from Greptile review]
+Claude: [Re-runs tests — still passing]
+Claude: [Auto-bumps version: 2.4.1 → 2.4.2]
+Claude: [Generates CHANGELOG entry from diff]
+Claude: [Commits: "feat: smart listing flow with auto-enrichment"]
+Claude: [Pushes to origin/feature-branch]
+Claude: [Creates PR]
+
+PR: https://github.com/you/app/pull/42
+```
+
+Six tool calls, done. That's Ship mode.
+
+## QA Modes: `/browse` and `/qa`
+
+### `/browse` — Browser Automation Primitive
+
+Gives the agent eyes. It can:
+
+- Navigate to URLs
+- Click buttons, fill forms, take screenshots
+- Check console errors, network requests
+- Test authenticated pages (with `/setup-browser-cookies`)
+
+See [Browser Automation](/concepts/browser-automation) for technical details.
+
+### `/qa` — Systematic Testing
+
+Uses `/browse` under the hood, but adds testing methodology:
+
+**Four modes:**
+
+1. **Diff-aware (default on feature branches)** — Reads `git diff main`, identifies affected pages, tests them
+2. **Full exploration** — Systematic 5-15 minute crawl of entire app, outputs health score + top issues
+3. **Quick smoke test** (`--quick`) — 30 seconds, homepage + top 5 nav targets
+4. **Regression testing** (`--regression baseline.json`) — Diff against previous run, track score delta
+
+### When to Use `/qa`
+
+- After `/ship`, before merging
+- Testing staging after deploy
+- Weekly regression runs
+
+### When to Use `/browse` Instead
+
+- Ad-hoc inspection of a URL
+- Reproducing a specific bug
+- One-off screenshot or console check
+
+## Choosing the Right Mode
+
+<Accordion title="I want to build a new feature — which mode?">
+  **Start with CEO mode, then Eng Manager mode, then implement.**
+  
+  1. `/plan-ceo-review` — Lock product direction
+  2. `/plan-eng-review` — Design the system
+  3. Exit plan mode, write code
+  4. `/review` — Structural audit
+  5. `/ship` — Merge it
+  6. `/qa` — Test it
+</Accordion>
+
+<Accordion title="I have a branch ready to ship — which mode?">
+  **Review, Ship, QA.**
+  
+  1. `/review` — Find structural issues
+  2. Fix any critical findings
+  3. `/ship` — Merge main, tests, PR
+  4. `/qa` — Test affected pages
+</Accordion>
+
+<Accordion title="I just want to check staging — which mode?">
+  **Use `/qa` or `/browse` directly.**
+  
+  ```bash
+  # Quick smoke test
+  /qa https://staging.myapp.com --quick
+  
+  # Or browse specific pages
+  /browse staging.myapp.com — check login and dashboard
+  ```
+</Accordion>
+
+<Accordion title="I'm fixing a small bug — which mode?">
+  **Skip plan modes. Just fix it, then `/ship`.**
+  
+  Small bugs don't need CEO or Eng Manager review. Write the fix, run `/ship`, done.
+</Accordion>
+
+## Mode Transitions
+
+Modes are **stateless** — Claude doesn't remember what mode it was in. You can invoke any skill at any time:
+
+```bash
+# This is fine
+/plan-ceo-review
+[exit plan mode, write code]
+/review
+/ship
+/qa
+
+# This is also fine (skip plan modes for small fixes)
+[write bug fix]
+/ship
+
+# This works too (QA first, find issues, fix, ship)
+/qa
+[fix broken pages]
+/ship
+```
+
+There's no enforced order. Use the mode that matches your current task.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Browser Automation" icon="browser" href="/concepts/browser-automation">
+    How `/browse` and `/qa` work under the hood
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Deep dive into daemon model, ref system, state management
+  </Card>
+  <Card title="Greptile Integration" icon="code-merge" href="/guides/greptile-integration">
+    Auto-triage Greptile review comments in `/review` and `/ship`
+  </Card>
+  <Card title="Command Reference" icon="terminal" href="/commands/browse/overview">
+    Full list of browse commands and snapshot flags
+  </Card>
+</CardGroup>

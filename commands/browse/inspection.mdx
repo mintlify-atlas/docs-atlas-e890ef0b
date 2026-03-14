@@ -1,0 +1,684 @@
+---
+title: Inspection Commands
+description: Debug and verify page behavior with JavaScript, console, network monitoring
+---
+
+Inspection commands help debug pages, verify element state, and monitor browser activity.
+
+## js
+
+Run JavaScript expression and return result as string.
+
+```bash
+browse js <expression>
+```
+
+<ParamField path="expression" type="string" required>
+  JavaScript expression to evaluate
+</ParamField>
+
+### Behavior
+
+- Executes in page context
+- Objects returned as JSON
+- Primitives returned as strings
+- `undefined` returns empty string
+
+### Examples
+
+<CodeGroup>
+
+```bash Get page title
+browse js "document.title"
+```
+
+```txt Output
+Example Domain
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Get object as JSON
+browse js "({a: 1, b: 2, c: [3, 4]})"
+```
+
+```json Output
+{
+  "a": 1,
+  "b": 2,
+  "c": [3, 4]
+}
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Check element value
+browse js "document.querySelector('#email').value"
+```
+
+```txt Output
+user@example.com
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Get computed style
+browse js "getComputedStyle(document.querySelector('h1')).color"
+```
+
+```txt Output
+rgb(0, 0, 128)
+```
+
+</CodeGroup>
+
+<Tip>
+For multi-line scripts or files, use `eval <file>` instead of `js`.
+</Tip>
+
+---
+
+## eval
+
+Run JavaScript from file and return result.
+
+```bash
+browse eval <file>
+```
+
+<ParamField path="file" type="string" required>
+  Path to JavaScript file (must be under `/tmp` or current working directory)
+</ParamField>
+
+### Security
+
+- Path validation prevents reading arbitrary files
+- Only `/tmp` and `cwd` are allowed
+- No `..` path traversal sequences
+
+### Examples
+
+<CodeGroup>
+
+```bash Run script from file
+cat > /tmp/extract.js << 'EOF'
+// Extract all headings
+Array.from(document.querySelectorAll('h1, h2, h3'))
+  .map(h => ({ level: h.tagName, text: h.textContent.trim() }))
+EOF
+
+browse eval /tmp/extract.js
+```
+
+```json Output
+[
+  { "level": "H1", "text": "Example Domain" },
+  { "level": "H2", "text": "More information" }
+]
+```
+
+</CodeGroup>
+
+---
+
+## css
+
+Get computed CSS property value.
+
+```bash
+browse css <selector> <property>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref`
+</ParamField>
+
+<ParamField path="property" type="string" required>
+  CSS property name (e.g., `color`, `font-size`, `display`)
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Get color
+browse css "h1" "color"
+```
+
+```txt Output
+rgb(0, 0, 128)
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Get font size
+browse css ".title" "font-size"
+```
+
+```txt Output
+24px
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Check visibility
+browse css "#modal" "display"
+```
+
+```txt Output
+none
+```
+
+</CodeGroup>
+
+---
+
+## attrs
+
+Get element attributes as JSON.
+
+```bash
+browse attrs <selector>
+```
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref`
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Get all attributes
+browse attrs "#submit-btn"
+```
+
+```json Output
+{
+  "id": "submit-btn",
+  "class": "btn btn-primary",
+  "type": "submit",
+  "data-action": "submit-form",
+  "disabled": ""
+}
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Check data attributes
+browse attrs ".product"
+```
+
+```json Output
+{
+  "class": "product",
+  "data-id": "12345",
+  "data-price": "29.99",
+  "data-category": "electronics"
+}
+```
+
+</CodeGroup>
+
+---
+
+## is
+
+Check element state (visible, enabled, checked, etc.).
+
+```bash
+browse is <property> <selector>
+```
+
+<ParamField path="property" type="string" required>
+  State to check: `visible`, `hidden`, `enabled`, `disabled`, `checked`, `editable`, `focused`
+</ParamField>
+
+<ParamField path="selector" type="string" required>
+  CSS selector or `@ref`
+</ParamField>
+
+### Properties
+
+| Property | Description |
+|----------|-------------|
+| `visible` | Element is visible and in viewport |
+| `hidden` | Element is hidden or offscreen |
+| `enabled` | Input/button is enabled (not disabled) |
+| `disabled` | Input/button is disabled |
+| `checked` | Checkbox/radio is checked |
+| `editable` | Input is editable (not readonly) |
+| `focused` | Element has focus |
+
+### Examples
+
+<CodeGroup>
+
+```bash Check visibility
+browse is visible "#modal"
+```
+
+```txt Output
+false
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Check if enabled
+browse is enabled "#submit-btn"
+```
+
+```txt Output
+true
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Check checkbox state
+browse is checked "#terms-checkbox"
+```
+
+```txt Output
+false
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Verify focus
+browse click "#email"
+browse is focused "#email"
+```
+
+```txt Output
+true
+```
+
+</CodeGroup>
+
+---
+
+## console
+
+View console messages (log, warn, error).
+
+```bash
+browse console [--clear|--errors]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear console buffer
+</ParamField>
+
+<ParamField path="--errors" type="flag">
+  Show only errors and warnings
+</ParamField>
+
+### Behavior
+
+- Captures all console messages in circular buffer (50,000 capacity)
+- Includes timestamp, level, and message text
+- Persists across page navigations within same tab
+- Async writes to `.gstack/browse-console.log`
+
+### Examples
+
+<CodeGroup>
+
+```bash View all console messages
+browse console
+```
+
+```txt Output
+[2026-03-14T10:30:45.123Z] [log] Page loaded
+[2026-03-14T10:30:45.456Z] [warn] Deprecated API used
+[2026-03-14T10:30:46.789Z] [error] Failed to fetch /api/data
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Show only errors
+browse console --errors
+```
+
+```txt Output
+[2026-03-14T10:30:45.456Z] [warn] Deprecated API used
+[2026-03-14T10:30:46.789Z] [error] Failed to fetch /api/data
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Clear buffer
+browse console --clear
+```
+
+```txt Output
+Console buffer cleared.
+```
+
+</CodeGroup>
+
+<Tip>
+Use `console --errors` to quickly spot JavaScript errors without noise from debug logs.
+</Tip>
+
+---
+
+## network
+
+View network requests.
+
+```bash
+browse network [--clear]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear network buffer
+</ParamField>
+
+### Output Format
+
+```
+METHOD URL → STATUS (DURATIONms, SIZEbytes)
+```
+
+### Examples
+
+<CodeGroup>
+
+```bash View network requests
+browse network
+```
+
+```txt Output
+GET https://example.com/ → 200 (150ms, 2048B)
+GET https://example.com/style.css → 200 (50ms, 1024B)
+GET https://api.example.com/data → 200 (300ms, 4096B)
+POST https://api.example.com/submit → 201 (200ms, 128B)
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Monitor API calls
+browse goto https://app.example.com
+browse click "#load-data"
+browse network | grep "api"
+```
+
+```txt Output
+GET https://api.example.com/users → 200 (250ms, 8192B)
+GET https://api.example.com/posts → 200 (180ms, 16384B)
+```
+
+</CodeGroup>
+
+---
+
+## dialog
+
+View dialog messages (alert, confirm, prompt).
+
+```bash
+browse dialog [--clear]
+```
+
+<ParamField path="--clear" type="flag">
+  Clear dialog buffer
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash View dialogs
+browse dialog
+```
+
+```txt Output
+[2026-03-14T10:30:45.123Z] [alert] "Welcome to the site!" → accepted
+[2026-03-14T10:30:50.456Z] [confirm] "Delete this item?" → accepted
+[2026-03-14T10:31:00.789Z] [prompt] "Enter your name:" → accepted "John Doe"
+```
+
+</CodeGroup>
+
+<Note>
+Dialogs are auto-accepted by default to prevent browser lockup. Use `dialog-accept` or `dialog-dismiss` to control behavior.
+</Note>
+
+---
+
+## cookies
+
+Get all cookies as JSON.
+
+```bash
+browse cookies
+```
+
+### Output Format
+
+```json
+[
+  {
+    "name": "session_id",
+    "value": "abc123...",
+    "domain": ".example.com",
+    "path": "/",
+    "expires": 1234567890,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]
+```
+
+### Examples
+
+<CodeGroup>
+
+```bash View all cookies
+browse cookies
+```
+
+```json Output
+[
+  {
+    "name": "session",
+    "value": "eyJhbGc...",
+    "domain": ".example.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true
+  }
+]
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Extract specific cookie
+browse cookies | jq '.[] | select(.name == "session") | .value'
+```
+
+</CodeGroup>
+
+---
+
+## storage
+
+Read or write localStorage/sessionStorage.
+
+```bash
+browse storage [set <key> <value>]
+```
+
+<ParamField path="set" type="command">
+  Write to localStorage
+</ParamField>
+
+<ParamField path="key" type="string">
+  Storage key
+</ParamField>
+
+<ParamField path="value" type="string">
+  Storage value
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Read all storage
+browse storage
+```
+
+```json Output
+{
+  "localStorage": {
+    "theme": "dark",
+    "user_id": "12345"
+  },
+  "sessionStorage": {
+    "temp_token": "xyz789"
+  }
+}
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Write to localStorage
+browse storage set "theme" "dark"
+```
+
+```txt Output
+Set localStorage["theme"]
+```
+
+</CodeGroup>
+
+---
+
+## perf
+
+Get page load performance timings.
+
+```bash
+browse perf
+```
+
+### Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `dns` | DNS lookup time |
+| `tcp` | TCP connection time |
+| `ssl` | SSL handshake time |
+| `ttfb` | Time to first byte |
+| `download` | Response download time |
+| `domParse` | DOM parsing time |
+| `domReady` | DOMContentLoaded event |
+| `load` | Full page load |
+| `total` | Total time from start |
+
+### Examples
+
+<CodeGroup>
+
+```bash Get performance metrics
+browse goto https://example.com
+browse perf
+```
+
+```txt Output
+dns          5ms
+tcp          15ms
+ssl          25ms
+ttfb         150ms
+download     50ms
+domParse     100ms
+domReady     300ms
+load         500ms
+total        500ms
+```
+
+</CodeGroup>
+
+---
+
+## Common Patterns
+
+### Verify Form Submission
+
+```bash
+browse fill "#email" "user@example.com"
+browse click "#submit"
+
+# Check for errors
+browse console --errors
+browse is visible ".error-message"
+```
+
+### Debug API Calls
+
+```bash
+browse goto https://app.example.com
+browse click "#load-data"
+browse network | grep "api"
+browse console --errors
+```
+
+### Check Element State
+
+```bash
+browse is enabled "#submit-btn"  # Should be true
+browse fill "#email" "invalid"
+browse is enabled "#submit-btn"  # Should be false
+```
+
+### Extract Data via JavaScript
+
+```bash
+browse js "Array.from(document.querySelectorAll('.product')).map(p => ({name: p.querySelector('.name').textContent, price: p.querySelector('.price').textContent}))"
+```
+
+### Monitor Performance
+
+```bash
+browse goto https://example.com
+browse perf > perf-$(date +%Y%m%d).txt
+```
+
+---
+
+## Related Commands
+
+- [`snapshot`](/commands/browse/overview#the-ref-system) - Get element refs
+- [`text`](/commands/browse/reading#text) - Extract page content
+- [`screenshot`](/commands/browse/visual#screenshot) - Visual debugging

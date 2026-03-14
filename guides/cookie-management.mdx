@@ -1,0 +1,494 @@
+---
+title: Cookie Management for Authenticated Testing
+description: Import browser cookies into gstack's headless browser for testing authenticated pages
+---
+
+# Cookie Management for Authenticated Testing
+
+The `/browse` and `/qa` skills run a headless Chromium browser. By default, this browser has no cookies — it's like browsing in incognito mode. To test pages behind authentication, you need to import cookies from your real browser session.
+
+The `/setup-browser-cookies` skill handles this automatically.
+
+## How It Works
+
+<Steps>
+
+<Step title="Auto-detect installed browsers">
+  The skill scans for installed Chromium browsers:
+  - Comet
+  - Chrome
+  - Arc
+  - Brave
+  - Edge
+</Step>
+
+<Step title="Open interactive picker UI">
+  A browser window opens showing all domains with cookies from your selected browser.
+  
+  You can:
+  - Switch between installed browsers
+  - Search for specific domains
+  - Click "+" to import a domain's cookies
+  - Click trash icon to remove imported cookies
+</Step>
+
+<Step title="Decrypt and load cookies">
+  Selected cookies are:
+  - Decrypted via macOS Keychain (requires permission on first use)
+  - Loaded into the Playwright headless browser session
+  - Persisted across `/browse` and `/qa` commands
+</Step>
+
+</Steps>
+
+<Info>
+Cookie values are never displayed in the picker UI — only domain names and cookie counts.
+</Info>
+
+## Basic Usage
+
+### Interactive Mode (Recommended)
+
+Import cookies using the visual picker:
+
+```bash
+/setup-browser-cookies
+```
+
+Claude will:
+1. Open the cookie picker in your default browser
+2. Tell you to select domains and confirm when done
+3. Wait for your confirmation
+4. Import the selected cookies
+5. Show a summary of what was imported
+
+**Example:**
+
+```
+You: /setup-browser-cookies
+
+Claude: Cookie picker opened — select the domains you want to import 
+        in your browser, then tell me when you're done.
+
+[You click "+" next to github.com and myapp.com in the browser UI]
+
+You: done
+
+Claude: Imported 2 domains (47 cookies). Session is ready.
+        
+        Domains:
+        - github.com (12 cookies)
+        - myapp.com (35 cookies)
+```
+
+### Direct Import Mode
+
+If you know exactly which domain you need:
+
+```bash
+/setup-browser-cookies github.com
+```
+
+This skips the UI and imports directly:
+
+```
+Claude: Imported 12 cookies for github.com from Comet.
+```
+
+### Specify Browser Source
+
+Import from a specific browser:
+
+```bash
+/setup-browser-cookies --browser chrome staging.myapp.com
+```
+
+Available browsers: `comet`, `chrome`, `arc`, `brave`, `edge`
+
+## Common Workflows
+
+### Testing Staging Environment
+
+<Steps>
+
+<Step title="Log in to staging in your browser">
+  Open your normal browser (Chrome, Arc, etc.) and log in to `https://staging.myapp.com`.
+</Step>
+
+<Step title="Import cookies to gstack">
+  ```bash
+  /setup-browser-cookies staging.myapp.com
+  ```
+</Step>
+
+<Step title="Run QA tests">
+  ```bash
+  /qa https://staging.myapp.com
+  ```
+  
+  The headless browser now has your authenticated session and can test protected pages.
+</Step>
+
+</Steps>
+
+### Testing Multiple Environments
+
+Import cookies for localhost, staging, and production:
+
+```bash
+/setup-browser-cookies
+```
+
+In the picker UI:
+1. Click "+" next to `localhost`
+2. Click "+" next to `staging.myapp.com`
+3. Click "+" next to `app.myapp.com`
+4. Tell Claude "done"
+
+Now you can switch between environments without re-importing:
+
+```bash
+/qa http://localhost:3000
+/qa https://staging.myapp.com
+/qa https://app.myapp.com --quick
+```
+
+### GitHub PR Testing
+
+Import GitHub cookies to test private repositories or view PR checks:
+
+```bash
+/setup-browser-cookies github.com
+```
+
+Then use `/browse` to navigate GitHub:
+
+```bash
+/browse https://github.com/yourteam/yourrepo/pull/42
+```
+
+The browser will be logged in as you and can view private content.
+
+### Multi-Account Testing
+
+If you use different browser profiles for different accounts:
+
+1. **Use different browsers for different accounts:**
+   - Log into staging with Chrome
+   - Log into production with Arc
+   - Log into dev with Brave
+
+2. **Import from specific browser:**
+   ```bash
+   /setup-browser-cookies --browser chrome staging.myapp.com
+   /setup-browser-cookies --browser arc app.myapp.com
+   ```
+
+<Warning>
+Importing cookies from multiple browsers will merge them. If the same domain exists in multiple browsers, the last import wins.
+</Warning>
+
+## Security & Privacy
+
+### macOS Keychain Permission
+
+On first cookie import from each browser, macOS will show a Keychain access prompt:
+
+```
+"browse" wants to access key "Chromium Safe Storage" in your keychain.
+```
+
+Options:
+- **Deny** — Import fails, try again
+- **Allow** — Import succeeds this time, will prompt again next time
+- **Always Allow** — Import succeeds, future imports are automatic (recommended)
+
+<Info>
+This permission is required because browsers encrypt cookies using macOS Keychain. The browse binary needs temporary access to decrypt them.
+</Info>
+
+### Cookie Storage
+
+Imported cookies are stored in:
+
+```
+project-root/
+  .gstack/
+    browser-cookies/
+```
+
+This directory is:
+- **Gitignored by default** — Never committed to version control
+- **Session-persistent** — Cookies survive between commands
+- **Local to your machine** — Not shared with teammates
+
+<Warning>
+**Never commit `.gstack/` to git.** It contains real session cookies that grant access to your accounts.
+</Warning>
+
+### Cookie Isolation
+
+Each gstack browser session is isolated:
+
+- Cookies don't leak back to your real browser
+- Multiple Conductor workspaces have separate cookie storage
+- Closing the browser (`$B close`) clears the session but preserves imported cookies for next time
+
+### Revoking Access
+
+To remove imported cookies:
+
+**Option 1: Remove specific domains in the picker**
+
+```bash
+/setup-browser-cookies
+```
+
+Click the trash icon next to domains you want to remove.
+
+**Option 2: Delete cookie storage**
+
+```bash
+rm -rf .gstack/browser-cookies/
+```
+
+This clears all imported cookies. Next `/browse` or `/qa` will be unauthenticated.
+
+## Troubleshooting
+
+### Keychain prompt not appearing
+
+If the macOS Keychain dialog doesn't show:
+
+1. Make sure you're on macOS (Linux uses a different cookie storage system)
+2. Try closing and reopening Terminal/Claude Code
+3. Check System Preferences → Security & Privacy → Privacy → Automation
+
+### Import succeeds but cookies don't work
+
+If imported cookies aren't being used:
+
+1. **Verify cookies were imported:**
+   ```bash
+   $B cookies
+   ```
+   Should show your imported domains.
+
+2. **Check domain matching:**
+   Cookies for `staging.myapp.com` won't work on `myapp.com` or `www.myapp.com`.
+   
+   Import the exact domain you'll be testing:
+   ```bash
+   /setup-browser-cookies www.myapp.com
+   ```
+
+3. **Session expired:**
+   Your real browser session may have expired. Re-login and re-import:
+   ```bash
+   /setup-browser-cookies myapp.com
+   ```
+
+### Cookies lost between commands
+
+If cookies disappear after closing the browser:
+
+1. **Don't use incognito mode** — Browser sessions are persistent by default
+2. **Check for browser crashes:**
+   ```bash
+   $B status
+   ```
+3. **Re-import if needed:**
+   ```bash
+   /setup-browser-cookies
+   ```
+
+### Wrong browser detected
+
+If gstack imports from the wrong browser:
+
+**Specify explicitly:**
+
+```bash
+/setup-browser-cookies --browser arc myapp.com
+```
+
+**Check which browsers are detected:**
+
+```bash
+$B cookie-import-browser --list
+```
+
+Shows all installed Chromium browsers found on your system.
+
+### Linux cookie import
+
+<Note>
+Linux cookie decryption uses a different system than macOS. The browse binary handles this automatically, but the encryption keys may vary by distribution.
+</Note>
+
+If cookie import fails on Linux:
+
+1. Ensure your browser is closed (some browsers lock the cookie database)
+2. Check browser data location:
+   - Chrome: `~/.config/google-chrome/Default/Cookies`
+   - Brave: `~/.config/BraveSoftware/Brave-Browser/Default/Cookies`
+3. Grant read permissions: `chmod 644 ~/.config/google-chrome/Default/Cookies`
+
+## Advanced Usage
+
+### Programmatic Cookie Import
+
+For CI/CD or automated testing, you can import cookies from a JSON file:
+
+```bash
+$B cookie-import-file cookies.json
+```
+
+Format:
+
+```json
+[
+  {
+    "name": "session_token",
+    "value": "abc123...",
+    "domain": ".myapp.com",
+    "path": "/",
+    "expires": 1234567890,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+]
+```
+
+<Warning>
+**Security risk:** Storing cookies in JSON files is dangerous. Only use this for ephemeral test accounts in isolated environments.
+</Warning>
+
+### Inspecting Current Cookies
+
+To see what cookies are loaded in the current session:
+
+```bash
+$B cookies
+```
+
+Output:
+
+```
+Cookies loaded: 47
+
+Domains:
+- github.com (12 cookies)
+- myapp.com (35 cookies)
+```
+
+### Exporting Cookies
+
+To save current browser session cookies:
+
+```bash
+$B cookies --export /tmp/session-cookies.json
+```
+
+This can be useful for:
+- Debugging authentication issues
+- Sharing test sessions (use test accounts only!)
+- Backing up long-lived sessions
+
+## Best Practices
+
+<Steps>
+
+<Step title="Use test accounts for automated testing">
+  Don't use your personal authenticated session for QA testing. Create dedicated test accounts:
+  
+  - `qa-test@myapp.com`
+  - `staging-tester@myapp.com`
+  
+  This avoids polluting your real account with test data.
+</Step>
+
+<Step title="Import cookies per session">
+  At the start of each testing session:
+  
+  ```bash
+  /setup-browser-cookies myapp.com
+  /qa https://staging.myapp.com
+  ```
+  
+  This ensures you have fresh, valid session cookies.
+</Step>
+
+<Step title="Separate cookies by environment">
+  Use different test accounts for different environments:
+  
+  - Localhost: local test account
+  - Staging: staging test account
+  - Production: read-only monitoring account
+  
+  Import all three:
+  
+  ```bash
+  /setup-browser-cookies
+  # Select localhost, staging.myapp.com, app.myapp.com
+  ```
+</Step>
+
+<Step title="Never commit cookie files">
+  Ensure `.gstack/` is in your `.gitignore`:
+  
+  ```gitignore
+  # gstack runtime data
+  .gstack/
+  ```
+  
+  Double-check before committing:
+  
+  ```bash
+  git status
+  # Should NOT show .gstack/ files
+  ```
+</Step>
+
+<Step title="Rotate test account credentials regularly">
+  Test account sessions can live for weeks or months. Rotate passwords periodically:
+  
+  1. Update test account password
+  2. Log in with new credentials in your browser
+  3. Re-import cookies: `/setup-browser-cookies myapp.com`
+</Step>
+
+</Steps>
+
+## Cookie Picker UI Reference
+
+### Controls
+
+**Browser Selector (top):**
+- Dropdown to switch between installed browsers
+- Shows: Comet, Chrome, Arc, Brave, Edge (if installed)
+
+**Search Bar:**
+- Filter domains by name
+- Example: Type "github" to show only GitHub-related domains
+
+**Domain List:**
+- Shows all domains with cookies from selected browser
+- Format: `domain.com (12 cookies)`
+- Click "+" to import
+- Click trash icon to remove imported cookies
+
+**Imported Section (bottom):**
+- Shows currently imported domains
+- Click trash to remove
+
+### Keyboard Shortcuts
+
+None currently. Use mouse/trackpad to interact with the UI.
+
+## Learn More
+
+- [Conductor Integration](/guides/conductor) — Running multiple sessions with isolated cookies
+- [Project Install](/guides/project-install) — Adding gstack to your repository
+- [Browse Skill Reference](/skills/browse) — Full `/browse` command documentation

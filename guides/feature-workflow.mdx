@@ -1,0 +1,421 @@
+---
+title: "End-to-End Feature Workflow"
+description: "Complete workflow for building a feature from idea to production using gstack"
+---
+
+This guide walks through the complete workflow for building a feature using gstack, from initial planning through QA testing. You'll learn how to combine multiple gstack skills into a cohesive development process.
+
+## The Five-Phase Workflow
+
+Most features follow this pattern:
+
+1. **Plan Mode** - Pressure-test the idea and lock in technical design
+2. **Engineering** - Implement the plan
+3. **Code Review** - Find structural bugs before they ship
+4. **Ship** - Automated release pipeline
+5. **QA Testing** - Verify everything works
+
+<Note>
+This workflow assumes you're working on a feature branch. Never run `/ship` from `main`.
+</Note>
+
+## Real Example: Photo Upload Feature
+
+Let's walk through a real feature: adding photo upload to a listing app.
+
+### Phase 1: Plan the Product (CEO Review)
+
+Start by pressure-testing whether you're building the right thing.
+
+<Steps>
+  <Step title="Enter plan mode and describe the feature">
+    ```
+    You: I want to add seller photo upload to the listing app. 
+         Sellers should be able to upload a photo of their item 
+         and we create the listing from it.
+    ```
+  </Step>
+
+  <Step title="Run CEO review to find the 10-star product">
+    ```
+    You: /plan-ceo-review
+    ```
+
+    The CEO review will challenge your premise and expand scope when it creates a better product:
+
+    ```
+    Claude: "Photo upload" is not the feature. The real job is 
+            helping sellers create listings that actually sell. 
+            Here's what the 10-star version looks like:
+            
+            - Auto-identify the product from the photo
+            - Pull specs and pricing comps from the web
+            - Draft the title and description
+            - Suggest the best hero image
+            - Detect low-quality photos and guide improvement
+    ```
+
+    <Tip>
+    CEO review runs in three modes:
+    - **SCOPE EXPANSION**: Dream big, find the 10-star product (default for greenfield features)
+    - **HOLD SCOPE**: Maximum rigor within existing scope (default for bug fixes)
+    - **SCOPE REDUCTION**: Strip to essentials (suggested when touching 15+ files)
+    </Tip>
+  </Step>
+
+  <Step title="Lock in technical architecture">
+    Once the product direction is right, shift to engineering mode:
+
+    ```
+    You: /plan-eng-review
+    ```
+
+    The engineering review locks in:
+    - Architecture diagram and component boundaries
+    - State machine for upload → classify → enrich → draft pipeline
+    - Async job boundaries and failure modes
+    - Test matrix and edge cases
+    - ASCII diagrams for complex flows
+
+    ```
+    Claude: [Architecture diagram showing]
+            Upload Service → Vision API → Product Classifier → 
+            Web Enrichment → Draft Generator → Listing DB
+            
+            State machine:
+            pending → processing → classified → enriched → 
+            draft_ready → published
+            
+            Failure modes:
+            - Vision API timeout: retry 2x, then mark failed
+            - Low confidence classification: human review queue
+            - Enrichment fails: save draft with available data
+            
+            Test matrix: 12 cases covering happy path + 
+            3 failure modes + 4 edge cases
+    ```
+  </Step>
+
+  <Step title="Exit plan mode and implement">
+    ```
+    You: [exit plan mode and start coding]
+    ```
+  </Step>
+</Steps>
+
+### Phase 2: Implement the Plan
+
+Work in normal Claude Code mode to implement the design. Follow the architecture and test matrix from the engineering review.
+
+<Accordion title="Implementation tips">
+  - Start with migrations and models (infrastructure first)
+  - Add services and their tests together
+  - Controllers and views come last
+  - Commit frequently in logical chunks
+  - Keep the test matrix from `/plan-eng-review` visible
+</Accordion>
+
+### Phase 3: Code Review
+
+Once implementation is complete, run a paranoid pre-landing review:
+
+```
+You: /review
+```
+
+The review looks for structural bugs that tests don't catch:
+
+```
+Claude: Pre-Landing Review: 3 critical issues, 2 informational
+
+        [CRITICAL] app/services/photo_upload_service.rb:47
+        Race condition: two tabs can overwrite cover-photo 
+        selection. Recommend DB-level advisory lock.
+        
+        [CRITICAL] app/services/draft_generator.rb:89
+        Trust boundary: pulling web data into draft generation 
+        creates a prompt injection vector. Sanitize external 
+        content before LLM call.
+        
+        [CRITICAL] app/models/upload.rb:34
+        Missing: orphan cleanup for failed uploads. Add 
+        background job to sweep abandoned files.
+        
+        [INFO] app/controllers/listings_controller.rb:56
+        N+1 query on listing.photos. Add .includes(:photos).
+        
+        [INFO] test/services/photo_upload_service_test.rb:12
+        Missing edge case: what happens when file is 0 bytes?
+```
+
+<Steps>
+  <Step title="Review finds critical issues">
+    For each critical issue, `/review` will ask how to proceed:
+    - **A) Fix it now** (recommended)
+    - **B) Acknowledge and ship anyway**
+    - **C) False positive — skip**
+  </Step>
+
+  <Step title="Fix the issues">
+    Choose A to fix critical issues. Claude applies the fixes and you continue.
+  </Step>
+</Steps>
+
+<Note>
+If Greptile is installed on your repo, `/review` will also triage Greptile's comments automatically. See [Greptile Integration](/guides/greptile-integration) for details.
+</Note>
+
+### Phase 4: Ship It
+
+Once review is clean, ship the branch:
+
+```
+You: /ship
+```
+
+The ship workflow is fully automated:
+
+<Steps>
+  <Step title="Sync and test">
+    - Merges `origin/main` into your branch
+    - Runs full test suite on merged code
+    - Stops if any tests fail
+  </Step>
+
+  <Step title="Pre-landing review">
+    - Runs the same review as `/review`
+    - Asks about any critical issues found
+    - For prompt-related changes, runs LLM eval suites
+  </Step>
+
+  <Step title="Greptile triage (if PR exists)">
+    - Fetches Greptile comments from the PR
+    - Classifies: valid, already fixed, or false positive
+    - Fixes valid issues or replies to false positives
+  </Step>
+
+  <Step title="Version bump and changelog">
+    - Auto-bumps version based on diff size:
+      - MICRO: &lt;50 lines (typos, config)
+      - PATCH: 50+ lines (bug fixes, features)
+      - MINOR/MAJOR: asks you first
+    - Auto-generates CHANGELOG from commit history
+  </Step>
+
+  <Step title="Commit and push">
+    - Creates bisectable commits (logical chunks)
+    - Each commit includes implementation + tests
+    - Final commit has version + changelog
+    - Pushes to remote
+  </Step>
+
+  <Step title="Create PR">
+    ```bash
+    gh pr create --title "feat: smart photo-based listing creation" \
+      --body "<summary, review findings, test results>"
+    ```
+
+    Output:
+    ```
+    https://github.com/you/app/pull/42
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+`/ship` is non-interactive by design. It only stops for:
+- Test failures
+- Critical review issues (asks once per issue)
+- MINOR/MAJOR version bumps (asks for confirmation)
+- Complex Greptile fixes (asks for approach)
+</Tip>
+
+### Phase 5: QA Testing
+
+After shipping, verify the feature works:
+
+```
+You: /qa
+```
+
+On a feature branch, `/qa` automatically enters **diff-aware mode**:
+
+<Steps>
+  <Step title="Analyze branch changes">
+    ```
+    Claude: Analyzing branch diff against main...
+            12 files changed: 3 controllers, 2 views, 
+            4 services, 3 tests
+    ```
+  </Step>
+
+  <Step title="Identify affected routes">
+    ```
+    Claude: Affected routes identified:
+            - /listings/new (upload form)
+            - /listings/:id (detail page with photos)
+            - /api/listings (JSON endpoint)
+            
+            Detected app running on localhost:3000
+    ```
+  </Step>
+
+  <Step title="Test each route">
+    The QA agent:
+    - Navigates to each affected page
+    - Takes screenshots
+    - Fills forms and tests interactions
+    - Checks console for errors
+    - Verifies the change had expected effect
+
+    ```
+    Claude: Testing /listings/new...
+            [screenshot] Upload form renders
+            [fill] Uploading test.jpg
+            [wait] Processing indicator appears
+            [screenshot] Draft generated with title, 
+                        description, and price suggestion
+            Console: 0 errors
+            
+            Testing /listings/:id...
+            [screenshot] Photo gallery renders correctly
+            [click] Hero image selection works
+            Console: 0 errors
+            
+            Testing /api/listings...
+            Response: 200 OK, includes photos array
+    ```
+  </Step>
+
+  <Step title="Report results">
+    ```
+    Claude: QA Report: 3 routes tested, all working.
+            
+            - /listings/new: upload + enrichment flow 
+              passes end to end
+            - /listings/:id: detail page renders correctly
+            - /api/listings: returns 200 with expected shape
+            
+            No console errors. No regressions on adjacent pages.
+            
+            Screenshots saved to .gstack/qa-reports/
+    ```
+  </Step>
+</Steps>
+
+<Note>
+For authenticated pages, run `/setup-browser-cookies` first to import your login session. See [QA Testing](/guides/qa-testing) for details.
+</Note>
+
+## Testing on Staging
+
+Once the PR is merged and deployed to staging:
+
+```
+You: /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You: /qa https://staging.myapp.com --quick
+
+Claude: [Smoke test: homepage + 5 pages, 30 seconds]
+        Health Score: 91/100. No critical issues.
+        1 medium: mobile nav overlap at 375px width.
+```
+
+## Complete Example Timeline
+
+```
+[09:00] Enter plan mode, describe feature
+[09:02] /plan-ceo-review → expand scope from "photo upload" 
+                           to "smart listing creation"
+[09:15] /plan-eng-review → architecture locked, test matrix defined
+[09:30] Exit plan mode, implement
+[11:45] Implementation complete
+[11:46] /review → finds 3 critical issues
+[11:50] Fix issues
+[11:52] /ship → syncs, tests, reviews, versions, commits, 
+                pushes, creates PR
+[11:58] PR ready: https://github.com/you/app/pull/42
+[12:00] /qa → tests 3 affected routes, all pass
+[12:02] Done. Feature shipped and verified in 3 hours.
+```
+
+## Workflow Variations
+
+### Small Bug Fix
+
+```
+You: [fix the bug on a branch]
+You: /review
+Claude: No issues found.
+You: /ship
+Claude: [PR created]
+```
+
+Skip plan mode for obvious fixes.
+
+### Refactor
+
+```
+You: [describe refactor in plan mode]
+You: /plan-eng-review
+Claude: [suggests HOLD SCOPE mode - no expansion needed]
+You: [implement]
+You: /review
+You: /ship
+```
+
+Use HOLD SCOPE for refactors to avoid scope creep.
+
+### Hotfix
+
+```
+You: [fix on a branch]
+You: /ship
+Claude: [runs quick review as part of ship]
+Claude: [creates PR]
+You: [merge PR manually]
+```
+
+For true emergencies, skip `/review` and let `/ship`'s pre-landing review catch issues.
+
+## Parallel Workflows with Conductor
+
+With [Conductor](https://conductor.build), run multiple workflows in parallel:
+
+```
+Session 1: /plan-ceo-review on feature A
+Session 2: /review on PR for feature B  
+Session 3: /qa on staging.myapp.com
+Session 4: Implementing feature C
+Session 5-10: Other features in progress
+```
+
+Each session runs in an isolated workspace with its own browser instance. No collisions, no shared state.
+
+## Key Principles
+
+<AccordionGroup>
+  <Accordion title="Plan before coding">
+    `/plan-ceo-review` and `/plan-eng-review` catch architectural mistakes before you write code. Fixing a bad plan takes 10 minutes. Fixing bad architecture takes 10 hours.
+  </Accordion>
+
+  <Accordion title="Review before shipping">
+    `/review` finds race conditions, trust boundary violations, and N+1 queries that tests miss. These are the bugs that pass CI and blow up in production.
+  </Accordion>
+
+  <Accordion title="Ship with automation">
+    `/ship` handles the boring work (sync, test, version, changelog, PR) so you stay in flow. It's non-interactive by design - say `/ship` and the next thing you see is a PR URL.
+  </Accordion>
+
+  <Accordion title="Verify with QA">
+    `/qa` in diff-aware mode tests exactly what you changed. It's faster than manual QA and catches issues you'd miss by eyeballing.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- [QA Testing Guide](/guides/qa-testing) - Deep dive on `/qa` modes and workflows
+- [Code Review Guide](/guides/code-review) - How to use `/review` effectively
+- [Greptile Integration](/guides/greptile-integration) - Automated PR review triage

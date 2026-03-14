@@ -1,0 +1,414 @@
+---
+title: '/ship Command'
+description: 'Fully automated ship workflow: merge main, run tests, review diff, version bump, changelog, commit, push, create PR'
+icon: 'rocket'
+---
+
+## Overview
+
+`/ship` is your release machine mode. It's a **non-interactive, fully automated** workflow that takes a ready feature branch and lands it. When you say `/ship`, you mean DO IT.
+
+**What it does:** Merge origin/main → run tests → pre-landing review → resolve Greptile comments → version bump → changelog → commit → push → create PR.
+
+<Note>
+  `/ship` is for a ready branch, not for deciding what to build. Use `/plan-ceo-review` and `/plan-eng-review` first if you're still figuring out the feature.
+</Note>
+
+## Command Syntax
+
+```bash
+/ship
+```
+
+That's it. No flags, no options. Just `/ship`.
+
+## When Ship Stops vs. Continues
+
+### Only stops for:
+
+- On `main` branch (aborts with message)
+- Merge conflicts that can't be auto-resolved
+- Test failures
+- Pre-landing review finds CRITICAL issues and you choose to fix them
+- MINOR or MAJOR version bump needed (asks you)
+- Greptile review comments needing user decision
+
+### Never stops for:
+
+- Uncommitted changes (always includes them)
+- Version bump choice (auto-picks MICRO or PATCH)
+- CHANGELOG content (auto-generates from diff)
+- Commit message approval (auto-commits)
+- Multi-file changesets (auto-splits into bisectable commits)
+
+## The Ship Workflow
+
+<Steps>
+  <Step title="Pre-flight checks">
+    - Verify not on `main` branch (abort if on main)
+    - Check `git status` (uncommitted changes are included)
+    - Review what's being shipped: `git diff main...HEAD --stat`
+  </Step>
+  
+  <Step title="Merge origin/main">
+    Fetch and merge `origin/main` into feature branch so tests run against merged state:
+    
+    ```bash
+    git fetch origin main && git merge origin/main --no-edit
+    ```
+    
+    Auto-resolves simple conflicts (VERSION, CHANGELOG). Stops on complex conflicts.
+  </Step>
+  
+  <Step title="Run tests on merged code">
+    Runs both test suites in parallel:
+    
+    ```bash
+    bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
+    npm run test 2>&1 | tee /tmp/ship_vitest.txt &
+    wait
+    ```
+    
+    **If any test fails:** Shows failures and STOPS. No shipping with broken tests.
+  </Step>
+  
+  <Step title="Eval suites (conditional)">
+    Only runs if the diff touches prompt-related files:
+    - `*_prompt_builder.rb`, `*_generation_service.rb`
+    - `*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`
+    - `config/system_prompts/*.txt`
+    - `test/evals/**/*`
+    
+    Always uses `EVAL_JUDGE_TIER=full` (Sonnet + Opus) for pre-merge rigor.
+    
+    **If any eval fails:** Shows failures, cost dashboard, and STOPS.
+  </Step>
+  
+  <Step title="Pre-landing review">
+    Applies `.claude/skills/review/checklist.md` in two passes:
+    - **Pass 1 (CRITICAL):** SQL safety, LLM trust boundary violations
+    - **Pass 2 (INFORMATIONAL):** All remaining categories
+    
+    **If CRITICAL issues found:** For each issue, asks:
+    - A) Fix it now (recommended)
+    - B) Acknowledge and ship anyway
+    - C) False positive — skip
+    
+    If you choose A on any issue: applies fixes, commits them, STOPS, and tells you to run `/ship` again to re-test.
+  </Step>
+  
+  <Step title="Greptile review triage (if PR exists)">
+    Fetches Greptile comments from the PR and classifies each:
+    
+    - **VALID & ACTIONABLE:** Asks to fix, acknowledge, or mark false positive
+    - **VALID BUT ALREADY FIXED:** Auto-replies acknowledging the catch
+    - **FALSE POSITIVE:** Asks whether to reply explaining, fix anyway, or ignore
+    - **SUPPRESSED:** Skips known false positives from `~/.gstack/greptile-history.md`
+    
+    If fixes are applied, re-runs tests before continuing.
+  </Step>
+  
+  <Step title="Version bump (auto-decide)">
+    Reads 4-digit `VERSION` file (`MAJOR.MINOR.PATCH.MICRO`):
+    
+    - **MICRO** (4th digit): < 50 lines changed, trivial tweaks
+    - **PATCH** (3rd digit): 50+ lines, bug fixes, small-medium features
+    - **MINOR** (2nd digit): Asks — major features or architectural changes
+    - **MAJOR** (1st digit): Asks — milestones or breaking changes
+    
+    Bumping a digit resets all digits to its right to 0.
+    
+    Example: `0.19.1.0` + PATCH → `0.19.2.0`
+  </Step>
+  
+  <Step title="CHANGELOG (auto-generate)">
+    Generates entry from ALL commits on the branch:
+    
+    ```markdown
+    ## [X.Y.Z.W] - YYYY-MM-DD
+    
+    ### Added
+    - New features
+    
+    ### Changed  
+    - Changes to existing functionality
+    
+    ### Fixed
+    - Bug fixes
+    
+    ### Removed
+    - Removed features
+    ```
+    
+    Inserts after file header (line 5), dated today. Never asks user to describe changes.
+  </Step>
+  
+  <Step title="Commit (bisectable chunks)">
+    Creates small, logical commits that work with `git bisect`:
+    
+    **Commit ordering:**
+    1. Infrastructure (migrations, config, routes)
+    2. Models & services (with their tests)
+    3. Controllers & views (with their tests)
+    4. VERSION + CHANGELOG (final commit)
+    
+    Each commit is independently valid — no broken imports. Final commit gets co-author trailer:
+    
+    ```bash
+    git commit -m "chore: bump version and changelog (vX.Y.Z.W)
+    
+    Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+    ```
+  </Step>
+  
+  <Step title="Push">
+    ```bash
+    git push -u origin <branch-name>
+    ```
+  </Step>
+  
+  <Step title="Create PR">
+    ```bash
+    gh pr create --title "<type>: <summary>" --body "..."
+    ```
+    
+    PR body includes:
+    - Summary (from CHANGELOG)
+    - Pre-Landing Review findings
+    - Eval results (if ran)
+    - Greptile review summary (if applicable)
+    - Test plan with pass counts
+    
+    **Final output:** PR URL
+  </Step>
+</Steps>
+
+## Version Bump Logic
+
+`/ship` uses a 4-digit version format: `MAJOR.MINOR.PATCH.MICRO`
+
+| Digit | When to bump | Lines changed | Example change |
+|-------|--------------|---------------|----------------|
+| MICRO (4th) | Auto | < 50 | Typo fix, config tweak |
+| PATCH (3rd) | Auto | 50+ | Bug fix, small feature |
+| MINOR (2nd) | Asks | N/A | Major feature, architectural change |
+| MAJOR (1st) | Asks | N/A | Milestone, breaking change |
+
+<Warning>
+  Bumping a digit resets all digits to its right to 0.
+  
+  Example: `1.2.3.4` → bump MINOR → `1.3.0.0`
+</Warning>
+
+## Greptile Integration
+
+If Greptile is installed on your repo, `/ship` automatically triages its review comments:
+
+### Comment Classification
+
+**VALID & ACTIONABLE** — Real issue that needs fixing:
+```plaintext
+app/services/payment_service.rb:47 — Race condition: concurrent
+charges can double-debit. Recommend DB-level advisory lock.
+→ https://github.com/you/app/pull/42#discussion_r123
+
+Options:
+  A) Fix it now (recommended)
+  B) Acknowledge and ship anyway  
+  C) False positive — skip
+```
+
+**VALID BUT ALREADY FIXED** — Auto-replies:
+```plaintext
+app/models/user.rb:12 — Missing null check on email.
+→ Already fixed in commit abc1234. Auto-replying.
+```
+
+**FALSE POSITIVE** — Asks whether to push back:
+```plaintext
+lib/auth.rb:88 — "Token comparison should use constant-time."
+We already use ActiveSupport::SecurityUtils.secure_compare.
+→ https://github.com/you/app/pull/42#discussion_r125
+
+Options:
+  A) Reply to Greptile explaining (recommended)
+  B) Fix it anyway
+  C) Ignore
+```
+
+**SUPPRESSED** — Skips known false positives from `~/.gstack/greptile-history.md`
+
+### Example Flow
+
+```bash
+You:   /ship
+
+Claude: [syncs main, runs tests, pre-landing review...]
+        
+        Greptile found 3 comments on this PR:
+        
+        [VALID] payment_service.rb:47 — Race condition
+        Fixing... Applied advisory lock. Committed.
+        
+        [ALREADY FIXED] user.rb:12 — Missing null check
+        Already fixed in abc1234. Auto-replying.
+        
+        [FALSE POSITIVE] auth.rb:88 — Constant-time comparison
+        Already using secure_compare.
+        
+        Options for false positive:
+          A) Reply to Greptile (recommended)
+          B) Fix anyway
+          C) Ignore
+
+You:    A
+
+Claude: Replied. Re-running tests after the fix...
+        All tests pass. Continuing to version bump.
+        
+        [creates PR]
+        PR: https://github.com/you/app/pull/42
+```
+
+## Bisectable Commits
+
+`/ship` splits changes into logical commits for easier debugging with `git bisect`:
+
+### Commit Structure Rules
+
+1. **One coherent change per commit** — not one file, but one logical unit
+2. **Each commit must be independently valid** — no broken imports
+3. **Order dependencies first** — model before controller that uses it
+
+### Example Split
+
+```plaintext
+Branch total: 12 files, 347 lines
+
+Commit 1: "feat: add listing enrichment model"
+  app/models/listing_enrichment.rb
+  test/models/listing_enrichment_test.rb
+  db/migrate/20260314_create_listing_enrichments.rb
+
+Commit 2: "feat: implement photo classification service"  
+  app/services/photo_classifier_service.rb
+  test/services/photo_classifier_service_test.rb
+
+Commit 3: "feat: add enrichment controller and routes"
+  app/controllers/api/enrichments_controller.rb
+  test/controllers/api/enrichments_controller_test.rb
+  config/routes.rb
+
+Commit 4: "feat: add upload UI component"
+  app/javascript/components/PhotoUpload.tsx
+  app/javascript/components/PhotoUpload.test.tsx
+
+Commit 5: "chore: bump version and changelog (v0.19.2.0)"
+  VERSION
+  CHANGELOG.md
+  
+  Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+```
+
+<Note>
+  If total diff is small (< 50 lines, < 4 files), a single commit is fine.
+</Note>
+
+## Important Rules
+
+1. **Never skip tests** — If tests fail, ship stops
+2. **Never skip pre-landing review** — If checklist is unreadable, ship stops
+3. **Never force push** — Only regular `git push`
+4. **Never ask for confirmation** — Except MINOR/MAJOR version bumps and CRITICAL review findings
+5. **Always use 4-digit version format** — From the VERSION file
+6. **Date format in CHANGELOG** — `YYYY-MM-DD`
+7. **Split commits for bisectability** — Each commit = one logical change
+
+## Examples
+
+### Successful ship
+
+```bash
+You:   /ship
+
+Claude: On branch feature/listing-enrichment
+        Uncommitted: 2 files (including them)
+        
+        Merging origin/main... Already up to date.
+        
+        Running tests...
+        ✓ bin/test-lane: 847 runs, 0 failures
+        ✓ npm test: 124 tests passed
+        
+        Pre-Landing Review: No issues found.
+        
+        No Greptile comments.
+        
+        Version bump: 0.19.1.0 → 0.19.2.0 (PATCH, 127 lines changed)
+        
+        CHANGELOG generated:
+        ## [0.19.2.0] - 2026-03-14
+        ### Added
+        - Photo upload with automatic product classification
+        - Listing enrichment from web data sources
+        
+        Created 3 commits (bisectable)
+        Pushed to origin/feature/listing-enrichment
+        
+        PR created: https://github.com/you/app/pull/42
+```
+
+### Ship stops for test failure
+
+```bash
+You:   /ship
+
+Claude: Running tests...
+        
+        ✗ bin/test-lane: 1 failure
+        
+        FAIL PaymentServiceTest#test_concurrent_charge_prevention
+          Expected advisory lock to prevent race condition
+        
+        Ship stopped. Fix the test failure and run /ship again.
+```
+
+### Ship stops for critical review issue
+
+```bash
+You:   /ship
+
+Claude: Pre-Landing Review: 1 critical issue
+        
+        [CRITICAL] app/services/payment_service.rb:47
+        Race condition: concurrent charges can double-debit the user.
+        
+        Recommended fix: Wrap charge block with DB advisory lock:
+        ```ruby
+        ActiveRecord::Base.with_advisory_lock("charge_#{user.id}") do
+          # charge logic
+        end
+        ```
+        
+        Options:
+          A) Fix it now (recommended)
+          B) Acknowledge and ship anyway
+          C) False positive
+
+You:    A
+
+Claude: Applied fix. Committed: fix: apply pre-landing review fixes
+        
+        Ship stopped. Run /ship again to re-test with the fix.
+```
+
+## When to Use Ship
+
+| Scenario | Use `/ship`? | Why |
+|----------|-------------|-----|
+| Feature branch is ready | Yes | Ship's core use case |
+| Tests are green locally | Yes | Ship re-runs on merged code |
+| Still figuring out the feature | No | Use `/plan-ceo-review` first |
+| Want to review before shipping | No | Use `/review` first, then `/ship` |
+| Need QA testing | No | Use `/qa` first, then `/ship` |
+| Just want to commit changes | No | Ship creates PR — use git directly |

@@ -1,0 +1,280 @@
+---
+title: Upgrading gstack
+description: How to update gstack to the latest version
+---
+
+This guide covers how to upgrade gstack to get the latest features, bug fixes, and improvements.
+
+## Quick Upgrade
+
+The fastest way to upgrade is to paste this command into Claude Code:
+
+<Note>
+  Claude Code will handle the entire upgrade process for you.
+</Note>
+
+```
+Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+```
+
+## Manual Upgrade
+
+If you prefer to upgrade manually, follow these steps:
+
+### Global Installation
+
+<Steps>
+  <Step title="Navigate to gstack directory">
+    ```bash
+    cd ~/.claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="Fetch latest changes">
+    ```bash
+    git fetch origin
+    ```
+  </Step>
+
+  <Step title="Reset to latest version">
+    ```bash
+    git reset --hard origin/main
+    ```
+
+    <Warning>
+      This will overwrite any local modifications. If you've made custom changes, back them up first.
+    </Warning>
+  </Step>
+
+  <Step title="Rebuild and setup">
+    ```bash
+    ./setup
+    ```
+
+    This rebuilds the browser binary and re-creates skill symlinks. Takes a few seconds.
+  </Step>
+</Steps>
+
+### Project-Local Installation
+
+If you've also installed gstack locally in a project (at `.claude/skills/gstack/`), update it separately:
+
+<Steps>
+  <Step title="Remove old skill symlinks">
+    ```bash
+    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do 
+      rm -f .claude/skills/$s
+    done
+    ```
+  </Step>
+
+  <Step title="Remove old gstack copy">
+    ```bash
+    rm -rf .claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="Copy updated version from global install">
+    ```bash
+    cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="Remove git metadata">
+    ```bash
+    rm -rf .claude/skills/gstack/.git
+    ```
+
+    This keeps the installation vendored (no git submodule).
+  </Step>
+
+  <Step title="Rebuild and setup">
+    ```bash
+    cd .claude/skills/gstack && ./setup
+    ```
+  </Step>
+</Steps>
+
+## What Gets Updated
+
+When you upgrade gstack, the following components are updated:
+
+- **Skill files**: All SKILL.md prompt files for `/browse`, `/qa`, `/review`, `/ship`, etc.
+- **Browser binary**: The headless browser CLI at `browse/dist/browse` (~58MB)
+- **Dependencies**: Node modules and build dependencies
+- **Symlinks**: Skill symlinks are recreated to ensure Claude Code can discover them
+
+<Note>
+  The browser binary and `node_modules/` are gitignored, so they're rebuilt during setup.
+</Note>
+
+## Upgrading to a Specific Version
+
+To upgrade to a specific version or branch:
+
+<Steps>
+  <Step title="Navigate to gstack directory">
+    ```bash
+    cd ~/.claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="Fetch all branches and tags">
+    ```bash
+    git fetch origin
+    ```
+  </Step>
+
+  <Step title="Checkout specific version">
+    For a tagged release:
+    ```bash
+    git checkout v0.3.2
+    ```
+
+    For a specific branch:
+    ```bash
+    git checkout origin/feature-branch
+    ```
+  </Step>
+
+  <Step title="Rebuild">
+    ```bash
+    bun install && bun run build
+    ```
+  </Step>
+</Steps>
+
+## Verifying the Upgrade
+
+After upgrading, verify everything is working:
+
+<Steps>
+  <Step title="Check skill availability">
+    Open Claude Code and verify skills appear:
+    - `/browse`
+    - `/qa`
+    - `/review`
+    - `/ship`
+    - `/plan-ceo-review`
+    - `/plan-eng-review`
+    - `/retro`
+    - `/setup-browser-cookies`
+  </Step>
+
+  <Step title="Test browser binary">
+    Run a simple browser command:
+    ```bash
+    cd ~/.claude/skills/gstack
+    ./browse/dist/browse goto https://example.com
+    ```
+
+    Should navigate successfully without errors.
+  </Step>
+
+  <Step title="Check version (if available)">
+    Some future versions may include version info. Check the git commit:
+    ```bash
+    cd ~/.claude/skills/gstack
+    git log -1 --oneline
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting Upgrade Issues
+
+<Accordion title="Setup script fails">
+  If `./setup` fails:
+
+  1. **Check Bun installation**:
+     ```bash
+     bun --version
+     ```
+     Should be v1.0 or higher.
+
+  2. **Manually rebuild**:
+     ```bash
+     bun install
+     bun run build
+     ```
+
+  3. **Check permissions**:
+     ```bash
+     chmod +x ./setup
+     ```
+</Accordion>
+
+<Accordion title="Skills still show old version">
+  If skills aren't updating after upgrade:
+
+  1. **Restart Claude Code**: Close and reopen to refresh skill discovery.
+  2. **Check symlinks**:
+     ```bash
+     ls -la ~/.claude/skills/
+     ```
+     Symlinks should point to `gstack/browse`, `gstack/review`, etc.
+
+  3. **Manually recreate symlinks**:
+     ```bash
+     cd ~/.claude/skills/gstack && ./setup
+     ```
+</Accordion>
+
+<Accordion title="Binary compilation fails">
+  If the browser binary won't compile:
+
+  1. **Check platform support**: `/browse` works on macOS and Linux (x64 and arm64).
+  2. **Check disk space**: The binary is ~58MB.
+  3. **Update Bun**:
+     ```bash
+     curl -fsSL https://bun.sh/install | bash
+     ```
+  4. **Check build logs**: Look for specific error messages during `bun run build`.
+</Accordion>
+
+## Rollback
+
+If an upgrade causes issues, you can roll back to a previous version:
+
+<Steps>
+  <Step title="Navigate to gstack directory">
+    ```bash
+    cd ~/.claude/skills/gstack
+    ```
+  </Step>
+
+  <Step title="View recent commits">
+    ```bash
+    git log --oneline -10
+    ```
+  </Step>
+
+  <Step title="Reset to previous commit">
+    ```bash
+    git reset --hard <commit-hash>
+    ```
+
+    Replace `<commit-hash>` with the commit you want to roll back to.
+  </Step>
+
+  <Step title="Rebuild">
+    ```bash
+    ./setup
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Rolling back may lose bug fixes and new features. Only roll back if the new version is causing critical issues.
+</Warning>
+
+## Keeping Updated
+
+To stay on the latest version:
+
+- **Watch the GitHub repository**: [github.com/garrytan/gstack](https://github.com/garrytan/gstack)
+- **Check for updates periodically**: Run `git fetch origin` in `~/.claude/skills/gstack` to see if new commits are available
+- **Subscribe to releases**: Follow the repository to get notified of new releases
+
+<Note>
+  gstack is actively developed. Regular updates bring new features, performance improvements, and bug fixes.
+</Note>

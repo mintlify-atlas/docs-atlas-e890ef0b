@@ -1,0 +1,581 @@
+---
+title: "QA Testing Workflows"
+description: "Deep dive on systematic QA testing with /qa - modes, authentication, and report interpretation"
+---
+
+gstack's `/qa` skill gives Claude eyes to test your web application like a real user. This guide covers the four QA modes and how to use them effectively.
+
+## The Four QA Modes
+
+| Mode | When to use | Duration | Output |
+|------|-------------|----------|--------|
+| **Diff-aware** | After coding on a feature branch | 1-3 min | Tests only affected pages |
+| **Full** | Weekly health check, pre-release | 5-15 min | Comprehensive health score + issues |
+| **Quick** | Post-deploy smoke test | 30 sec | Fast health check |
+| **Regression** | Compare before/after | Same as full | Delta report |
+
+## Diff-Aware Mode (Default)
+
+The most common workflow: you just finished coding and want to verify your changes work.
+
+### How It Works
+
+<Steps>
+  <Step title="Automatically detects feature branch">
+    When you run `/qa` without a URL and you're on a feature branch, diff-aware mode activates automatically.
+  </Step>
+
+  <Step title="Analyzes your changes">
+    ```bash
+    git diff main...HEAD --name-only
+    git log main..HEAD --oneline
+    ```
+
+    Identifies:
+    - Which routes/pages your code touches
+    - Which components and views changed
+    - Which API endpoints were modified
+  </Step>
+
+  <Step title="Detects your local dev server">
+    Checks common ports: `localhost:3000`, `localhost:4000`, `localhost:8080`
+
+    If no local server is found, asks for the URL.
+  </Step>
+
+  <Step title="Tests affected pages only">
+    For each affected route:
+    - Navigate to the page
+    - Take screenshot
+    - Test interactions if relevant
+    - Check console for errors
+    - Verify the change had expected effect
+  </Step>
+</Steps>
+
+### Example: Testing a Form Change
+
+```
+You: [just added a new field to /listings/new form]
+You: /qa
+
+Claude: Analyzing branch diff against main...
+        
+        Changed files:
+        - app/views/listings/new.html.erb
+        - app/controllers/listings_controller.rb
+        - app/models/listing.rb
+        
+        Affected routes: /listings/new, /listings/:id
+        Detected app on localhost:3000
+        
+        Testing /listings/new...
+        [screenshot] Form renders with new 'condition' field
+        [fill] Testing form submission
+        [fill @e7] "Like New"
+        [click @e12] Submit
+        [screenshot] Created successfully, condition shown
+        Console: 0 errors
+        
+        Testing /listings/:id...
+        [screenshot] Condition field displays on show page
+        Console: 0 errors
+        
+        QA Report: 2 routes tested, all working.
+        Changes verified end-to-end.
+```
+
+<Tip>
+Diff-aware mode cross-references commit messages and PR descriptions to understand *intent*. It verifies the change does what you said it would do.
+</Tip>
+
+## Full Mode
+
+Systematic exploration of your entire application. Produces a health score and detailed issue report.
+
+### Running Full QA
+
+```
+You: /qa https://myapp.com
+
+Claude: [Explores 12 pages over 8 minutes]
+        
+        QA Report: myapp.com — Health Score: 72/100
+        
+        Top 3 Issues:
+        1. CRITICAL: Checkout form submits with empty 
+           required fields. Validation only client-side.
+           [screenshot-before.png] [screenshot-after.png]
+           
+        2. HIGH: Mobile nav menu doesn't close after 
+           selecting item. User must reload to clear.
+           Repro: viewport 375x812, click hamburger @e3, 
+           click any link @e5, menu stays open.
+           [screenshot.png]
+           
+        3. MEDIUM: Dashboard chart overlaps sidebar 
+           below 1024px width. Layout breaks at 768px.
+           [screenshot-mobile.png]
+        
+        Console Health: 4 errors across 3 pages
+        - TypeError on /dashboard: Cannot read 'length' of undefined
+        - 404 on /assets/logo-old.png (3 pages)
+        
+        Full report: .gstack/qa-reports/qa-report-myapp-com-2026-03-14.md
+```
+
+### Health Score Breakdown
+
+The health score (0-100) is a weighted average across 8 categories:
+
+| Category | Weight | What it measures |
+|----------|--------|------------------|
+| Console | 15% | JavaScript errors |
+| Links | 10% | Broken links |
+| Functional | 20% | Interactive elements work |
+| UX | 15% | User experience issues |
+| Visual | 10% | Layout and styling |
+| Performance | 10% | Load times, CLS |
+| Accessibility | 15% | A11y violations |
+| Content | 5% | Typos, missing text |
+
+<Accordion title="Scoring details">
+  **Console errors:**
+  - 0 errors → 100
+  - 1-3 errors → 70
+  - 4-10 errors → 40
+  - 10+ errors → 10
+
+  **Broken links:**
+  - 0 broken → 100
+  - Each broken link → -15 (minimum 0)
+
+  **Per-category penalties:**
+  - Critical issue → -25
+  - High issue → -15
+  - Medium issue → -8
+  - Low issue → -3
+</Accordion>
+
+### What Full Mode Tests
+
+At each page, the QA agent follows a systematic checklist:
+
+<AccordionGroup>
+  <Accordion title="Visual scan">
+    Takes annotated screenshot and checks:
+    - Layout issues (overlaps, alignment)
+    - Missing images (broken src)
+    - Color contrast problems
+    - Responsive breakpoints
+  </Accordion>
+
+  <Accordion title="Interactive elements">
+    Clicks buttons, links, controls:
+    - Do buttons respond?
+    - Do links navigate correctly?
+    - Do dropdowns open?
+    - Do modals close?
+  </Accordion>
+
+  <Accordion title="Forms">
+    Tests validation and submission:
+    - Empty submission (should reject)
+    - Invalid data (should show errors)
+    - Valid data (should succeed)
+    - Edge cases (max length, special chars)
+  </Accordion>
+
+  <Accordion title="States">
+    Checks different UI states:
+    - Empty state (no data)
+    - Loading state (async operations)
+    - Error state (failure scenarios)
+    - Overflow state (too much data)
+  </Accordion>
+
+  <Accordion title="Console errors">
+    ```bash
+    $B console --errors
+    ```
+    After each interaction, checks for new JS errors.
+  </Accordion>
+
+  <Accordion title="Mobile viewport">
+    ```bash
+    $B viewport 375x812
+    $B screenshot mobile.png
+    $B viewport 1280x720
+    ```
+    Tests responsive behavior on key pages.
+  </Accordion>
+</AccordionGroup>
+
+## Quick Mode
+
+30-second smoke test for post-deploy verification.
+
+```
+You: /qa https://staging.myapp.com --quick
+
+Claude: Quick smoke test: staging.myapp.com
+        
+        Visited:
+        - Homepage: loads, 0 console errors
+        - Dashboard: loads, nav works
+        - Settings: loads, forms present
+        - Billing: Stripe elements render
+        - API health: 200 OK
+        - Docs: loads, search works
+        
+        Health Score: 87/100
+        
+        Issues found:
+        - MEDIUM: Mobile nav overlap (known issue)
+        
+        Smoke test passed. No critical issues.
+```
+
+<Note>
+Quick mode only visits homepage + top 5 navigation targets. It checks: page loads? Console errors? Broken links? No detailed issue documentation.
+</Note>
+
+### When to Use Quick Mode
+
+- **Post-deploy verification**: Did the deploy break anything obvious?
+- **Pre-demo health check**: Quick scan before showing to someone
+- **Staging environment monitoring**: Automated nightly smoke tests
+
+## Regression Mode
+
+Compare health score and issues before/after a change.
+
+<Steps>
+  <Step title="Create baseline before changes">
+    ```
+    You: /qa https://myapp.com
+    
+    Claude: [Full QA run]
+            Health Score: 78/100
+            Baseline saved: .gstack/qa-reports/baseline.json
+    ```
+  </Step>
+
+  <Step title="Make changes and deploy">
+    [Deploy your updates to staging/production]
+  </Step>
+
+  <Step title="Run regression test">
+    ```
+    You: /qa https://myapp.com --regression .gstack/qa-reports/baseline.json
+    
+    Claude: [Full QA run]
+            Health Score: 85/100 (+7 from baseline)
+            
+            Regression Analysis:
+            
+            Fixed Issues (3):
+            ✓ CRITICAL: Checkout validation (was issue #1)
+            ✓ HIGH: Mobile nav stickiness (was issue #2)
+            ✓ MEDIUM: Console error on /dashboard
+            
+            New Issues (1):
+            ⚠ MEDIUM: Footer alignment on mobile
+            
+            Unchanged Issues (2):
+            - LOW: Missing alt text on logo
+            - LOW: Typo in footer copyright
+            
+            Net improvement: +7 points, 3 fixes, 1 new issue
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+Use regression mode to track quality over time. Run weekly and keep a history of baselines to see trends.
+</Tip>
+
+## Authentication
+
+To test pages behind login, import cookies from your real browser.
+
+### Import Cookies
+
+```
+You: /setup-browser-cookies
+
+Claude: Cookie picker opened — select the domains you want 
+        to import in your browser, then tell me when you're done.
+
+[Browser UI opens showing available domains]
+[You select: myapp.com, api.myapp.com]
+
+You: done
+
+Claude: Imported 2 domains (34 cookies). Session is ready.
+```
+
+Now `/qa` and `/browse` can access authenticated pages.
+
+### Supported Browsers
+
+- Comet
+- Chrome
+- Arc
+- Brave
+- Microsoft Edge
+
+<Note>
+First import triggers a macOS Keychain prompt. Click "Allow" or "Always Allow" to decrypt cookies.
+</Note>
+
+### Direct Domain Import
+
+Skip the UI if you know the domain:
+
+```
+You: /setup-browser-cookies staging.myapp.com
+
+Claude: Imported 12 cookies for staging.myapp.com from Chrome.
+```
+
+## Report Structure
+
+QA reports are saved to `.gstack/qa-reports/`:
+
+```
+.gstack/qa-reports/
+├── qa-report-myapp-com-2026-03-14.md
+├── screenshots/
+│   ├── initial.png
+│   ├── issue-001-step-1.png
+│   ├── issue-001-result.png
+│   ├── issue-002.png
+│   └── ...
+└── baseline.json
+```
+
+### Reading a Report
+
+Each issue includes:
+
+- **Severity**: CRITICAL, HIGH, MEDIUM, LOW
+- **Category**: Functional, Visual, UX, Performance, etc.
+- **Description**: What's wrong
+- **Repro steps**: How to reproduce (with screenshot references)
+- **Screenshots**: Evidence images
+
+**Example issue:**
+
+```markdown
+### ISSUE-003: Form submits with invalid email [HIGH]
+
+**Category:** Functional
+**Page:** /signup
+
+**Description:**
+Email validation only runs client-side. Disabling JavaScript 
+allows invalid emails to be submitted and stored.
+
+**Repro steps:**
+1. Navigate to /signup
+2. Fill email field with "notanemail"
+3. Fill password field with "password123"
+4. Submit form
+5. Server accepts submission, creates account with invalid email
+
+**Evidence:**
+- Before: screenshots/issue-003-step-1.png
+- After: screenshots/issue-003-result.png
+
+**Impact:**
+Users can create accounts with invalid emails, breaking 
+password reset and notifications.
+
+**Fix:**
+Add server-side email validation in UsersController#create.
+```
+
+## Framework-Specific Testing
+
+### Next.js
+
+```bash
+# Check for hydration errors
+$B console --errors
+# Look for: "Hydration failed", "Text content did not match"
+
+# Monitor data fetching
+# 404s in _next/data indicate broken getServerSideProps
+
+# Test client-side navigation (important!)
+$B click @e5  # Don't just goto - test routing
+```
+
+### Rails
+
+```bash
+# Verify CSRF tokens in forms
+$B snapshot -i
+# Look for: <input name="authenticity_token">
+
+# Check flash messages
+$B snapshot -D  # After form submit
+# Verify flash appears and dismisses
+
+# Test Turbo/Stimulus
+# Page transitions should be smooth, no full reloads
+```
+
+### SPAs (React, Vue, Angular)
+
+```bash
+# Use snapshot -i for navigation (not 'links' command)
+$B snapshot -i  # Client-side routes don't show in HTML
+
+# Test stale state
+$B goto /dashboard
+$B goto /settings
+$B goto /dashboard  # Does data refresh?
+
+# Test browser history
+# Click back/forward - app should handle history
+```
+
+## Common Issues and Fixes
+
+<AccordionGroup>
+  <Accordion title="QA can't find my local server">
+    **Problem:** `/qa` tries `localhost:3000`, `localhost:4000`, `localhost:8080` but your app runs on a different port.
+
+    **Fix:** Specify the URL explicitly:
+    ```
+    /qa http://localhost:5173
+    ```
+  </Accordion>
+
+  <Accordion title="Login required but /setup-browser-cookies fails">
+    **Problem:** Your app uses HTTP-only cookies or session storage.
+
+    **Fix:** Log in manually through `/browse`:
+    ```bash
+    $B goto https://myapp.com/login
+    $B snapshot -i
+    $B fill @e3 "user@example.com"
+    $B fill @e4 "password"
+    $B click @e5
+    ```
+    Then run `/qa` - the session persists.
+  </Accordion>
+
+  <Accordion title="QA times out on slow pages">
+    **Problem:** Page takes >30s to load.
+
+    **Fix:** Browse commands have configurable timeouts. The QA skill will wait for page load.
+
+    Check for:
+    - Blocking synchronous scripts
+    - Large unoptimized images
+    - Slow API calls in page load
+  </Accordion>
+
+  <Accordion title="CAPTCHA blocks automated testing">
+    **Problem:** Login form has CAPTCHA.
+
+    **Fix:** Use `/setup-browser-cookies` to import an already-authenticated session. Or ask the QA agent to pause:
+    ```
+    Claude: CAPTCHA detected. Please complete it in 
+            the browser, then tell me to continue.
+    
+    You: [complete CAPTCHA]
+    You: continue
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Techniques
+
+### Testing API Endpoints
+
+```bash
+# JSON endpoints
+$B goto https://myapp.com/api/listings
+$B text  # Shows raw response
+
+# Or use JavaScript execution
+$B js "await fetch('/api/users/me').then(r => r.json())"
+```
+
+### Viewport Testing
+
+```bash
+# Mobile
+$B viewport 375x812
+$B screenshot mobile.png
+
+# Tablet  
+$B viewport 768x1024
+$B screenshot tablet.png
+
+# Desktop
+$B viewport 1920x1080
+$B screenshot desktop.png
+```
+
+### Comparing Environments
+
+```bash
+# Production
+$B goto https://myapp.com/dashboard
+$B screenshot prod-dashboard.png
+
+# Staging
+$B goto https://staging.myapp.com/dashboard  
+$B screenshot staging-dashboard.png
+
+# Compare visually
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Run diff-aware QA on every branch">
+    Make `/qa` part of your standard workflow:
+    ```
+    1. Code feature
+    2. /review
+    3. /ship
+    4. /qa ← verify it works
+    ```
+  </Accordion>
+
+  <Accordion title="Run full QA weekly">
+    Schedule a weekly health check:
+    ```
+    /qa https://staging.myapp.com
+    ```
+    Save the baseline and track trends.
+  </Accordion>
+
+  <Accordion title="Run quick QA after every deploy">
+    Add to your deploy script:
+    ```bash
+    # After deploy
+    claude "/qa https://staging.myapp.com --quick"
+    ```
+  </Accordion>
+
+  <Accordion title="Use regression mode for releases">
+    Before major releases:
+    1. Run full QA, save baseline
+    2. Deploy release candidate
+    3. Run regression test against baseline
+    4. Fix new issues before GA
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- [End-to-End Feature Workflow](/guides/feature-workflow) - How QA fits into the full dev cycle
+- [Browse Command Reference](/skills/browse) - Low-level browser control
+- [Code Review Guide](/guides/code-review) - Find bugs before QA

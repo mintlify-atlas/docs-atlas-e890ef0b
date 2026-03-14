@@ -1,0 +1,374 @@
+---
+title: Tab Management
+description: Manage multiple browser tabs for parallel workflows
+---
+
+Tab commands let you open, switch between, and close multiple browser tabs within a single session.
+
+## tabs
+
+List all open tabs.
+
+```bash
+browse tabs
+```
+
+### Output Format
+
+```
+→ [ID] TITLE — URL
+  [ID] TITLE — URL
+```
+
+- `→` indicates the active tab
+- `ID` is the numeric tab identifier
+- `TITLE` is the page title (or `(untitled)` if none)
+- `URL` is the current page URL
+
+### Examples
+
+<CodeGroup>
+
+```bash List all tabs
+browse tabs
+```
+
+```txt Output
+→ [1] Example Domain — https://example.com
+  [2] Documentation — https://docs.example.com
+  [3] GitHub — https://github.com
+```
+
+</CodeGroup>
+
+<Tip>
+Use `tabs` to verify which tab is active before running commands. All commands operate on the active tab.
+</Tip>
+
+---
+
+## tab
+
+Switch to a specific tab by ID.
+
+```bash
+browse tab <id>
+```
+
+<ParamField path="id" type="number" required>
+  Tab ID from `tabs` command
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Switch to tab 2
+browse tab 2
+```
+
+```txt Output
+Switched to tab 2
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Switch between tabs
+browse tabs
+# → [1] Example — https://example.com
+#   [2] Docs — https://docs.example.com
+
+browse tab 2
+browse text  # Extracts from docs page
+
+browse tab 1
+browse text  # Extracts from example page
+```
+
+</CodeGroup>
+
+<Warning>
+Switching to a non-existent tab ID will throw an error. Use `tabs` to verify tab IDs first.
+</Warning>
+
+---
+
+## newtab
+
+Open a new tab, optionally navigating to a URL.
+
+```bash
+browse newtab [url]
+```
+
+<ParamField path="url" type="string">
+  URL to navigate to in the new tab (optional)
+</ParamField>
+
+### Behavior
+
+- Creates a new tab
+- Returns the new tab ID
+- If URL provided, navigates to it (waits for `domcontentloaded`)
+- If no URL, opens blank tab
+- New tab becomes the active tab
+
+### Examples
+
+<CodeGroup>
+
+```bash Open new tab with URL
+browse newtab https://github.com
+```
+
+```txt Output
+Opened tab 3 → https://github.com
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Open blank tab
+browse newtab
+```
+
+```txt Output
+Opened tab 4
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Multi-tab workflow
+browse goto https://example.com
+browse newtab https://docs.example.com
+browse newtab https://github.com
+
+browse tabs
+# Output:
+#   [1] Example — https://example.com
+#   [2] Docs — https://docs.example.com
+# → [3] GitHub — https://github.com
+```
+
+</CodeGroup>
+
+---
+
+## closetab
+
+Close a tab by ID, or close the active tab if no ID provided.
+
+```bash
+browse closetab [id]
+```
+
+<ParamField path="id" type="number">
+  Tab ID to close (optional). If omitted, closes the active tab.
+</ParamField>
+
+### Behavior
+
+- Closes specified tab or active tab
+- If closing the active tab, switches to the first remaining tab
+- Cannot close the last remaining tab (browser requires at least one tab)
+
+### Examples
+
+<CodeGroup>
+
+```bash Close specific tab
+browse closetab 2
+```
+
+```txt Output
+Closed tab 2
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Close active tab
+browse tabs
+# → [1] Example — https://example.com
+#   [2] Docs — https://docs.example.com
+
+browse closetab
+# Closes tab 1, switches to tab 2
+```
+
+```txt Output
+Closed tab
+```
+
+</CodeGroup>
+
+<Warning>
+Closing the last remaining tab will fail. The browser must always have at least one tab open.
+</Warning>
+
+---
+
+## Common Patterns
+
+### Multi-Page Comparison
+
+```bash
+# Open multiple pages
+browse goto https://example.com/v1
+browse newtab https://example.com/v2
+browse newtab https://example.com/v3
+
+# Extract data from each
+browse tab 1
+browse text > v1.txt
+
+browse tab 2
+browse text > v2.txt
+
+browse tab 3
+browse text > v3.txt
+
+# Compare
+diff v1.txt v2.txt
+```
+
+### Parallel Form Fills
+
+```bash
+# Open multiple forms
+browse goto https://example.com/form
+browse newtab https://staging.example.com/form
+
+# Fill production
+browse tab 1
+browse fill "#email" "prod@example.com"
+browse click "#submit"
+
+# Fill staging
+browse tab 2
+browse fill "#email" "staging@example.com"
+browse click "#submit"
+
+# Verify both
+browse tab 1
+browse wait ".success"
+
+browse tab 2
+browse wait ".success"
+```
+
+### Tab Cleanup
+
+```bash
+# Open many tabs during exploration
+browse goto https://example.com
+browse snapshot -i
+browse click @e1  # Opens in new tab
+browse click @e2  # Opens in new tab
+
+# List tabs
+browse tabs
+# → [1] Example — https://example.com
+#   [2] Page A — https://example.com/a
+#   [3] Page B — https://example.com/b
+
+# Close extra tabs
+browse closetab 3
+browse closetab 2
+
+# Back to single tab
+browse tabs
+# → [1] Example — https://example.com
+```
+
+### Reference Tab Pattern
+
+```bash
+# Keep a reference tab open
+browse goto https://docs.example.com
+browse newtab https://app.example.com
+
+# Work in app tab
+browse fill "#query" "api authentication"
+browse click "#search"
+
+# Switch to docs for reference
+browse tab 1
+browse snapshot -i
+# Find auth docs...
+
+# Back to app
+browse tab 2
+# Continue workflow...
+```
+
+### Sequential Processing
+
+```bash
+# Process list of URLs
+URLS=("https://example.com/page1" "https://example.com/page2" "https://example.com/page3")
+
+for url in "${URLS[@]}"; do
+  browse newtab "$url"
+  browse text >> output.txt
+  echo "---" >> output.txt
+  browse closetab  # Close after processing
+done
+```
+
+---
+
+## Tab Persistence
+
+<Note>
+**Tabs persist across commands** within the same browser session (server daemon). They are NOT persisted across server restarts.
+
+When the daemon auto-stops (30 min idle) or is manually stopped, all tabs are closed.
+</Note>
+
+### Session Lifecycle
+
+```bash
+# Session 1: Open tabs
+browse goto https://example.com
+browse newtab https://docs.example.com
+browse tabs
+# → [1] Example — https://example.com
+#   [2] Docs — https://docs.example.com
+
+# ... 30 minutes idle ...
+# Server auto-stops
+
+# Session 2: Fresh start
+browse tabs
+# → [1] (untitled) — about:blank
+# All previous tabs are gone
+```
+
+---
+
+## Tab Limits
+
+There is no hard limit on the number of tabs, but performance degrades with many tabs:
+
+- **1-5 tabs**: Optimal performance
+- **5-10 tabs**: Minor slowdown
+- **10+ tabs**: Noticeable memory usage, slower navigation
+
+<Tip>
+Close unused tabs with `closetab` to keep the browser responsive.
+</Tip>
+
+---
+
+## Related Commands
+
+- [`goto`](/commands/browse/navigation#goto) - Navigate in current tab
+- [`url`](/commands/browse/navigation#url) - Get URL of active tab
+- [`snapshot`](/commands/browse/overview#the-ref-system) - Get page structure of active tab

@@ -1,0 +1,442 @@
+---
+title: "/retro"
+description: "Weekly engineering retrospective with team analysis and trend tracking"
+---
+
+## What it does
+
+`/retro` is your **engineering manager mode**. At the end of the week, you want to know what actually happened - not vibes, data.
+
+This skill analyzes commit history, work patterns, and shipping velocity, then writes a candid retrospective. It's team-aware: identifies who's running the command, gives you the deepest treatment on your own work, then breaks down every contributor with specific praise and growth opportunities.
+
+<Note>
+Computes metrics like commits, LOC, test ratio, PR sizes, fix ratio, detects coding sessions from timestamps, finds hotspot files, tracks shipping streaks, and identifies the biggest ship of the week.
+</Note>
+
+## When to use it
+
+Use `/retro` when you want to:
+- Review the week's engineering work with data
+- See team velocity, test coverage, and code quality trends
+- Get specific feedback on each team member's contributions
+- Track your personal coding patterns and peak hours
+- Compare this week vs last week
+- See your shipping streak
+
+## Real example
+
+From the README:
+
+```bash
+You:   /retro
+
+Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm | Streak: 47d
+
+        ## Your Week
+        32 commits, +2.4k LOC, 41% tests. Peak hours: 9-11pm.
+        Biggest ship: cookie import system (browser decryption + picker UI).
+        What you did well: shipped a complete feature with encryption, UI, and
+        18 unit tests in one focused push...
+
+        ## Team Breakdown
+
+        ### Alice
+        12 commits focused on app/services/. Every PR under 200 LOC — disciplined.
+        Opportunity: test ratio at 12% — worth investing before payment gets more complex.
+
+        ### Bob
+        3 commits — fixed the N+1 query on dashboard. Small but high-impact.
+        Opportunity: only 1 active day this week — check if blocked on anything.
+
+        [Top 3 team wins, 3 things to improve, 3 habits for next week]
+```
+
+## Arguments
+
+```bash
+/retro              # last 7 days (default)
+/retro 24h          # last 24 hours
+/retro 14d          # last 14 days
+/retro 30d          # last 30 days
+/retro compare      # compare current window vs prior same-length window
+/retro compare 14d  # compare with explicit window
+```
+
+## What you'll get
+
+A comprehensive retrospective with:
+
+<Steps>
+  <Step title="Tweetable summary">
+    ```
+    Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests,
+    12 PRs, peak: 10pm | Streak: 47d
+    ```
+  </Step>
+  
+  <Step title="Summary table">
+    | Metric | Value |
+    |--------|-------|
+    | Commits to main | 47 |
+    | Contributors | 3 |
+    | PRs merged | 12 |
+    | Total insertions | 3200 |
+    | Net LOC added | 2400 |
+    | Test LOC ratio | 38% |
+    | Active days | 6 |
+    | Detected sessions | 14 |
+    | Avg LOC/session-hour | 350 |
+    | Greptile signal | 83% (5 catches, 1 FP) |
+  </Step>
+  
+  <Step title="Per-author leaderboard">
+    ```
+    Contributor         Commits   +/-          Top area
+    You (garry)              32   +2400/-300   browse/
+    alice                    12   +800/-150    app/services/
+    bob                       3   +120/-40     tests/
+    ```
+  </Step>
+  
+  <Step title="Trends vs Last Retro">
+    ```
+                        Last        Now         Delta
+    Test ratio:         22%    →    41%         ↑19pp
+    Sessions:           10     →    14          ↑4
+    LOC/hour:           200    →    350         ↑75%
+    Fix ratio:          54%    →    30%         ↓24pp (improving)
+    ```
+  </Step>
+  
+  <Step title="Time & Session Patterns">
+    Hourly histogram in Pacific time:
+    ```
+    Hour  Commits  ████████████████
+     00:    4      ████
+     07:    5      █████
+     22:   18      ██████████████████
+    ```
+    
+    Peak hours, dead zones, bimodal patterns, late-night clusters.
+    
+    Session classification:
+    - Deep sessions (50+ min)
+    - Medium sessions (20-50 min)
+    - Micro sessions (&lt;20 min)
+  </Step>
+  
+  <Step title="Shipping Velocity">
+    - Commit type breakdown (feat/fix/refactor/test/chore/docs)
+    - PR size distribution (Small/Medium/Large/XL)
+    - Fix-chain detection (sequences of fix commits on same subsystem)
+    - Version bump discipline
+  </Step>
+  
+  <Step title="Code Quality Signals">
+    - Test LOC ratio trend
+    - Hotspot analysis (same files churning?)
+    - XL PRs that should have been split
+    - Greptile signal ratio and trend (if history exists)
+  </Step>
+  
+  <Step title="Focus & Highlights">
+    - Focus score (% of commits touching single most-changed directory)
+    - Ship of the week (highest-LOC PR with context)
+  </Step>
+  
+  <Step title="Your Week (personal deep-dive)">
+    For the current user only:
+    - Personal commit count, LOC, test ratio
+    - Session patterns and peak hours
+    - Focus areas
+    - Biggest ship
+    - **What you did well** (2-3 specific things anchored in commits)
+    - **Where to level up** (1-2 specific, actionable suggestions)
+  </Step>
+  
+  <Step title="Team Breakdown">
+    For each teammate (skip if solo repo):
+    
+    #### [Name]
+    - What they shipped (2-3 sentences on contributions, areas, patterns)
+    - **Praise** (1-2 specific things, anchored in actual commits)
+    - **Opportunity for growth** (1 specific, constructive suggestion)
+  </Step>
+  
+  <Step title="Top 3 Team Wins">
+    Highest-impact things shipped across the whole team:
+    - What it was
+    - Who shipped it
+    - Why it matters (product/architecture impact)
+  </Step>
+  
+  <Step title="3 Things to Improve">
+    Specific, actionable, anchored in commits. Mix personal and team-level.
+  </Step>
+  
+  <Step title="3 Habits for Next Week">
+    Small, practical, realistic (&lt;5 min to adopt each).
+  </Step>
+</Steps>
+
+## Team member analysis
+
+For each contributor, the skill computes:
+
+1. **Commits and LOC** - total commits, insertions, deletions, net LOC
+2. **Areas of focus** - which directories/files they touched most (top 3)
+3. **Commit type mix** - their personal feat/fix/refactor/test breakdown
+4. **Session patterns** - when they code (peak hours), session count
+5. **Test discipline** - their personal test LOC ratio
+6. **Biggest ship** - their single highest-impact commit or PR
+
+### Praise examples
+
+<Note>
+Praise is anchored in actual commits. Not "great work" - say exactly what was good.
+</Note>
+
+Examples:
+- "Shipped the entire auth middleware rewrite in 3 focused sessions with 45% test coverage"
+- "Every PR under 200 LOC - disciplined decomposition"
+- "Fixed the N+1 query that was causing 2s load times on the dashboard"
+
+### Growth opportunity examples
+
+<Note>
+Frame as leveling-up suggestions, not criticism. Anchor in actual data.
+</Note>
+
+Examples:
+- "Test ratio was 12% this week - adding test coverage to the payment module before it gets more complex would pay off"
+- "5 fix commits on the same file suggest the original PR could have used a review pass"
+- "All commits land between 1-4am - sustainable pace matters for code quality long-term"
+
+## Streak tracking
+
+Counts consecutive days with at least 1 commit to `origin/main`, going back from today. Tracks both team streak and personal streak:
+
+```bash
+# Team streak: all unique commit dates (Pacific time)
+TZ=America/Los_Angeles git log origin/main --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+
+# Personal streak: only the current user's commits
+TZ=America/Los_Angeles git log origin/main --author="<user_name>" --format="%ad" --date=format:"%Y-%m-%d" | sort -u
+```
+
+Display both:
+- "Team shipping streak: 47 consecutive days"
+- "Your shipping streak: 32 consecutive days"
+
+## Greptile signal tracking
+
+If `~/.gstack/greptile-history.md` exists and has entries within the time window:
+
+- Read entries and filter by date
+- Count by type: `fix`, `fp`, `already-fixed`
+- Compute signal ratio: `(fix + already-fixed) / (fix + already-fixed + fp)`
+- Display: "Greptile: 83% signal (5 valid catches, 1 false positive)"
+
+If no history exists, skip the Greptile metric row.
+
+## Compare mode
+
+When you run `/retro compare` or `/retro compare 14d`:
+
+<Steps>
+  <Step title="Compute current window metrics">
+    Default 7d using `--since="7 days ago"`
+  </Step>
+  
+  <Step title="Compute prior window metrics">
+    Same-length window immediately before, using both `--since` and `--until` to avoid overlap.
+    
+    Example for 7d window:
+    ```bash
+    --since="14 days ago" --until="7 days ago"
+    ```
+  </Step>
+  
+  <Step title="Show side-by-side comparison">
+    ```
+                        Prior       Now         Delta
+    Commits:            32     →    47          ↑47%
+    Test ratio:         22%    →    41%         ↑19pp
+    Sessions:           10     →    14          ↑4
+    LOC/hour:           200    →    350         ↑75%
+    Fix ratio:          54%    →    30%         ↓24pp (improving)
+    Deep sessions:      3      →    5           ↑2
+    ```
+  </Step>
+  
+  <Step title="Write narrative">
+    Highlight biggest improvements and regressions.
+  </Step>
+  
+  <Step title="Save only current window">
+    Save only the current-window snapshot to `.context/retros/` - do NOT persist prior-window metrics.
+  </Step>
+</Steps>
+
+## Retro history
+
+The skill saves a JSON snapshot to `.context/retros/` so the next run can show trends:
+
+```json
+{
+  "date": "2026-03-08",
+  "window": "7d",
+  "metrics": {
+    "commits": 47,
+    "contributors": 3,
+    "prs_merged": 12,
+    "insertions": 3200,
+    "deletions": 800,
+    "net_loc": 2400,
+    "test_loc": 1300,
+    "test_ratio": 0.41,
+    "active_days": 6,
+    "sessions": 14,
+    "deep_sessions": 5,
+    "avg_session_minutes": 42,
+    "loc_per_session_hour": 350,
+    "feat_pct": 0.40,
+    "fix_pct": 0.30,
+    "peak_hour": 22,
+    "ai_assisted_commits": 32
+  },
+  "authors": {
+    "Garry Tan": { "commits": 32, "insertions": 2400, "deletions": 300, "test_ratio": 0.41, "top_area": "browse/" },
+    "Alice": { "commits": 12, "insertions": 800, "deletions": 150, "test_ratio": 0.35, "top_area": "app/services/" }
+  },
+  "version_range": ["1.16.0.0", "1.16.1.0"],
+  "streak_days": 47,
+  "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm",
+  "greptile": {
+    "fixes": 3,
+    "fps": 1,
+    "already_fixed": 2,
+    "signal_pct": 83
+  }
+}
+```
+
+Filename: `.context/retros/YYYY-MM-DD-N.json` (N = sequence number for multiple retros on same day)
+
+## Example workflow
+
+```bash
+# End of week review
+You:   /retro
+
+Claude: Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests,
+        12 PRs, peak: 10pm | Streak: 47d
+        
+        ## Summary Table
+        [Full metrics table...]
+        
+        ## Trends vs Last Retro
+        Test ratio: 22% → 41% (↑19pp)
+        Sessions: 10 → 14 (↑4)
+        LOC/hour: 200 → 350 (↑75%)
+        
+        ## Time & Session Patterns
+        [Hourly histogram, session breakdown...]
+        
+        ## Your Week
+        32 commits, +2.4k LOC, 41% tests. Peak: 9-11pm.
+        Biggest ship: cookie import system (browser decryption + picker UI).
+        
+        What you did well:
+        - Shipped complete feature with encryption, UI, 18 unit tests in one push
+        - Test ratio 41% (up from 22% last week)
+        - 5 deep sessions averaging 90 minutes each
+        
+        Where to level up:
+        - 3 XL PRs (>1500 LOC) - breaking these up earlier would catch issues faster
+        - Fix ratio at 30% - consider more pre-landing review before ship
+        
+        ## Team Breakdown
+        
+        ### Alice
+        12 commits focused on app/services/. Every PR under 200 LOC - disciplined.
+        
+        Praise:
+        - Cleaned up entire auth module in 3 small, reviewable PRs - textbook
+        - Added integration tests for every new endpoint, not just happy paths
+        
+        Opportunity:
+        - Test coverage on payment module at 8% - worth investing before next feature
+        
+        ### Bob
+        3 commits - fixed N+1 query on dashboard. Small but high-impact.
+        
+        Praise:
+        - Fixed the 2s load time issue on dashboard with one focused commit
+        
+        Opportunity:
+        - Only 1 active day this week - check if blocked on anything
+        
+        ## Top 3 Team Wins
+        1. Cookie import system shipped (browser decryption + picker UI)
+        2. Auth module refactor - 200 LOC removed, tests at 45%
+        3. Dashboard N+1 fix - 2s → 200ms load time
+        
+        ## 3 Things to Improve
+        1. Break up XL PRs earlier - 3 over 1500 LOC this week
+        2. Increase test coverage on payment module before it gets more complex
+        3. More pre-landing review - 30% fix ratio suggests catching issues earlier
+        
+        ## 3 Habits for Next Week
+        1. Review each other's PRs same-day
+        2. Run /review before /ship on every branch
+        3. Write the test first for any new public method
+
+# Compare mode
+You:   /retro compare
+
+Claude: [Shows current vs prior 7d window side-by-side...]
+        
+        Biggest improvements:
+        - Test ratio: 22% → 41% (↑19pp)
+        - LOC/hour: 200 → 350 (↑75%)
+        - Deep sessions: 3 → 5 (↑2)
+        
+        Regressions:
+        - None
+```
+
+## Tips
+
+<Accordion title="How often should I run /retro?">
+Weekly is the default. Run it every Friday to review the week. If you're shipping fast, try `24h` or `3d` windows.
+</Accordion>
+
+<Accordion title="What if it's a solo repo?">
+The skill detects this and skips the team breakdown. You get the full personal deep-dive instead.
+</Accordion>
+
+<Accordion title="Can I see trends over multiple weeks?">
+Yes. Run `/retro compare` to see this week vs last week. Or use `14d` / `30d` windows to see weekly trends within the period.
+</Accordion>
+
+<Accordion title="What if the window has zero commits?">
+The skill tells you and suggests a different window.
+</Accordion>
+
+## Tone
+
+From the skill instructions:
+
+- Encouraging but candid, no coddling
+- Specific and concrete - always anchor in actual commits/code
+- Skip generic praise ("great job!") - say exactly what was good and why
+- Frame improvements as leveling up, not criticism
+- **Praise should feel like something you'd actually say in a 1:1** - specific, earned, genuine
+- **Growth suggestions should feel like investment advice** - "this is worth your time because..." not "you failed at..."
+- Never compare teammates against each other negatively
+
+## Related skills
+
+- [`/ship`](/skills/ship) - Ship workflow (retro tracks PR sizes and fix ratios)
+- [`/review`](/skills/review) - Pre-landing review (retro tracks Greptile signal)

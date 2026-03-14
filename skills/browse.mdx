@@ -1,0 +1,326 @@
+---
+title: "/browse"
+description: "Headless browser for QA testing and dogfooding - give Claude eyes"
+---
+
+## What it does
+
+`/browse` is your **QA engineer mode**. Before it, Claude could think and code but was still half blind. It had to guess about UI state, auth flows, redirects, console errors, empty states, and broken layouts. Now it can just go look.
+
+This skill closes the loop: plan, code, run the app, inspect the UI, reproduce the bug, verify the fix, ship. QA stops being "go click around manually" and becomes part of the same agentic loop.
+
+<Note>
+Built on [Playwright](https://playwright.dev/) - a compiled binary that talks to a persistent Chromium daemon. First call starts the browser (~3s). Every call after: ~100-200ms.
+</Note>
+
+## When to use it
+
+Use `/browse` when you need to:
+- Test a feature after implementation
+- Verify a deployment works
+- Dogfood a user flow end-to-end
+- File a bug report with visual evidence
+- Check console errors on a live page
+- Compare staging vs production
+- Test authenticated pages (after cookie setup)
+
+## Real example
+
+From the README:
+
+```bash
+You:   /browse staging.myapp.com — log in, test the signup flow, and check
+       every page I changed in this branch
+
+Claude: [18 tool calls, ~60 seconds]
+
+        > browse goto https://staging.myapp.com/signup
+        > browse snapshot -i
+        > browse fill @e2 "test@example.com"
+        > browse fill @e3 "password123"
+        > browse click @e5                    (Submit)
+        > browse screenshot /tmp/signup.png
+        > Read /tmp/signup.png
+
+        Signup works. Redirected to onboarding. Now checking changed pages.
+
+        > browse goto https://staging.myapp.com/dashboard
+        > browse screenshot /tmp/dashboard.png
+        > Read /tmp/dashboard.png
+        > browse console
+
+        Dashboard loads. No console errors. Charts render with sample data.
+
+        All 4 pages load correctly. No console errors. No broken layouts.
+        Signup → onboarding → dashboard flow works end to end.
+```
+
+18 tool calls, about a minute. Full QA pass. You didn't open a browser.
+
+## Core QA patterns
+
+<CodeGroup>
+
+```bash Verify a page loads
+$B goto https://yourapp.com
+$B text                          # content loads?
+$B console                       # JS errors?
+$B network                       # failed requests?
+$B is visible ".main-content"    # key elements present?
+```
+
+```bash Test a user flow
+$B goto https://app.com/login
+$B snapshot -i                   # see all interactive elements
+$B fill @e3 "user@test.com"
+$B fill @e4 "password"
+$B click @e5                     # submit
+$B snapshot -D                   # diff: what changed after submit?
+$B is visible ".dashboard"       # success state present?
+```
+
+```bash Verify an action worked
+$B snapshot                      # baseline
+$B click @e3                     # do something
+$B snapshot -D                   # unified diff shows exactly what changed
+```
+
+```bash Visual evidence for bug reports
+$B snapshot -i -a -o /tmp/annotated.png   # labeled screenshot
+$B screenshot /tmp/bug.png                # plain screenshot
+$B console                                # error log
+```
+
+```bash Test responsive layouts
+$B responsive /tmp/layout        # mobile + tablet + desktop screenshots
+$B viewport 375x812              # or set specific viewport
+$B screenshot /tmp/mobile.png
+```
+
+</CodeGroup>
+
+## Snapshot flags
+
+The snapshot is your primary tool for understanding and interacting with pages.
+
+| Flag | Description |
+|------|-------------|
+| `-i` / `--interactive` | Interactive elements only (buttons, links, inputs) with `@e` refs |
+| `-c` / `--compact` | Compact (no empty structural nodes) |
+| `-d N` / `--depth N` | Limit tree depth (0 = root only, default: unlimited) |
+| `-s sel` / `--selector sel` | Scope to CSS selector |
+| `-D` / `--diff` | Unified diff against previous snapshot (first call stores baseline) |
+| `-a` / `--annotate` | Annotated screenshot with red overlay boxes and ref labels |
+| `-o path` / `--output path` | Output path for annotated screenshot (default: `/tmp/browse-annotated.png`) |
+| `-C` / `--cursor-interactive` | Cursor-interactive elements (`@c` refs - divs with pointer, onclick) |
+
+All flags can be combined freely. `-o` only applies when `-a` is also used.
+
+Example: `$B snapshot -i -a -C -o /tmp/annotated.png`
+
+### Ref numbering
+
+`@e` refs are assigned sequentially (`@e1`, `@e2`, ...) in tree order.
+`@c` refs from `-C` are numbered separately (`@c1`, `@c2`, ...).
+
+After snapshot, use `@refs` as selectors:
+
+```bash
+$B click @e3       $B fill @e4 "value"     $B hover @e1
+$B html @e2        $B css @e5 "color"      $B attrs @e6
+$B click @c1       # cursor-interactive ref (from -C)
+```
+
+<Warning>
+Refs are invalidated on navigation - run `snapshot` again after `goto`.
+</Warning>
+
+### Output format
+
+Indented accessibility tree with `@ref` IDs, one element per line:
+
+```
+  @e1 [heading] "Welcome" [level=1]
+  @e2 [textbox] "Email"
+  @e3 [button] "Submit"
+```
+
+## Full command list
+
+<Accordion title="Navigation">
+| Command | Description |
+|---------|-------------|
+| `back` | History back |
+| `forward` | History forward |
+| `goto <url>` | Navigate to URL |
+| `reload` | Reload page |
+| `url` | Print current URL |
+</Accordion>
+
+<Accordion title="Reading">
+| Command | Description |
+|---------|-------------|
+| `accessibility` | Full ARIA tree |
+| `forms` | Form fields as JSON |
+| `html [selector]` | innerHTML of selector (throws if not found), or full page HTML if no selector |
+| `links` | All links as "text → href" |
+| `text` | Cleaned page text |
+</Accordion>
+
+<Accordion title="Interaction">
+| Command | Description |
+|---------|-------------|
+| `click <sel>` | Click element |
+| `cookie <name>=<value>` | Set cookie on current page domain |
+| `cookie-import <json>` | Import cookies from JSON file |
+| `cookie-import-browser [browser] [--domain d]` | Import cookies from Comet, Chrome, Arc, Brave, or Edge |
+| `dialog-accept [text]` | Auto-accept next alert/confirm/prompt |
+| `dialog-dismiss` | Auto-dismiss next dialog |
+| `fill <sel> <val>` | Fill input |
+| `header <name>:<value>` | Set custom request header |
+| `hover <sel>` | Hover element |
+| `press <key>` | Press key (Enter, Tab, Escape, arrows, etc.) |
+| `scroll [sel]` | Scroll element into view, or to page bottom if no selector |
+| `select <sel> <val>` | Select dropdown option |
+| `type <text>` | Type into focused element |
+| `upload <sel> <file> [file2...]` | Upload file(s) |
+| `useragent <string>` | Set user agent |
+| `viewport <WxH>` | Set viewport size |
+| `wait <sel\|--networkidle\|--load>` | Wait for element, network idle, or page load (15s timeout) |
+</Accordion>
+
+<Accordion title="Inspection">
+| Command | Description |
+|---------|-------------|
+| `attrs <sel\|@ref>` | Element attributes as JSON |
+| `console [--clear\|--errors]` | Console messages (--errors filters to error/warning) |
+| `cookies` | All cookies as JSON |
+| `css <sel> <prop>` | Computed CSS value |
+| `dialog [--clear]` | Dialog messages |
+| `eval <file>` | Run JavaScript from file |
+| `is <prop> <sel>` | State check (visible/hidden/enabled/disabled/checked/editable/focused) |
+| `js <expr>` | Run JavaScript expression |
+| `network [--clear]` | Network requests |
+| `perf` | Page load timings |
+| `storage [set k v]` | Read localStorage + sessionStorage, or set key |
+</Accordion>
+
+<Accordion title="Visual">
+| Command | Description |
+|---------|-------------|
+| `diff <url1> <url2>` | Text diff between pages |
+| `pdf [path]` | Save as PDF |
+| `responsive [prefix]` | Screenshots at mobile/tablet/desktop viewports |
+| `screenshot [path]` | Save screenshot |
+</Accordion>
+
+<Accordion title="Tabs">
+| Command | Description |
+|---------|-------------|
+| `closetab [id]` | Close tab |
+| `newtab [url]` | Open new tab |
+| `tab <id>` | Switch to tab |
+| `tabs` | List open tabs |
+</Accordion>
+
+<Accordion title="Server">
+| Command | Description |
+|---------|-------------|
+| `restart` | Restart server |
+| `status` | Health check |
+| `stop` | Shutdown server |
+</Accordion>
+
+## State persistence
+
+The browser stays running between commands. Cookies, localStorage, tabs, and login sessions carry over.
+
+**Security note:** This is a real browser with real state. Don't use it against sensitive production environments unless you intend to. The session auto-shuts down after 30 minutes of idle time.
+
+## Setup
+
+Before first use, the skill runs a one-time setup check:
+
+```bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+[ -z "$B" ] && B=~/.claude/skills/gstack/browse/dist/browse
+if [ -x "$B" ]; then
+  echo "READY: $B"
+else
+  echo "NEEDS_SETUP"
+fi
+```
+
+If `NEEDS_SETUP`, the skill tells you and runs `./setup` (~10 seconds). Requires [Bun](https://bun.sh/) v1.0+.
+
+## Example workflow
+
+```bash
+# After pushing a branch
+You:   Go check staging - test the signup flow and every page I changed
+
+Claude: [Uses /browse skill]
+        
+        > $B goto https://staging.myapp.com
+        > $B snapshot -i -a -o /tmp/staging-home.png
+        > Read /tmp/staging-home.png
+        
+        Homepage loads. Nav bar shows Login + Signup.
+        
+        > $B click @e4                    # Signup link
+        > $B snapshot -i
+        > $B fill @e2 "test@example.com"
+        > $B fill @e3 "SecurePass123"
+        > $B click @e5                    # Submit
+        > $B snapshot -D
+        
+        Signup succeeded. Redirected to /onboarding.
+        Diff shows: Welcome message appeared, nav changed to Dashboard.
+        
+        > $B console --errors
+        
+        No console errors.
+        
+        > $B goto https://staging.myapp.com/dashboard
+        > $B screenshot /tmp/dashboard.png
+        > Read /tmp/dashboard.png
+        
+        Dashboard renders. Charts show sample data. No layout issues.
+        
+        All pages tested. Signup → onboarding → dashboard flow works.
+        No console errors. No broken layouts.
+```
+
+## Tips
+
+<Accordion title="Testing authenticated pages">
+Use `/setup-browser-cookies` first to import your real browser sessions. Then `/browse` can test pages behind login without manual login every time.
+</Accordion>
+
+<Accordion title="Finding non-ARIA clickable elements">
+Use `snapshot -C` to find divs with `cursor:pointer`, `onclick`, or `tabindex` that the accessibility tree misses.
+</Accordion>
+
+<Accordion title="Comparing environments">
+```bash
+$B diff https://staging.app.com https://prod.app.com
+```
+Shows text diff between the two pages.
+</Accordion>
+
+<Accordion title="Asserting element states">
+```bash
+$B is visible ".modal"
+$B is enabled "#submit-btn"
+$B is checked "#agree-checkbox"
+$B js "document.body.textContent.includes('Success')"
+```
+</Accordion>
+
+## Related skills
+
+- [`/qa`](/skills/qa) - Systematic QA testing mode (uses `/browse` internally)
+- [`/setup-browser-cookies`](/skills/setup-browser-cookies) - Import cookies for authenticated testing
+- [`/ship`](/skills/ship) - Ship workflow

@@ -1,0 +1,197 @@
+---
+title: Installation
+description: Install gstack on your machine and optionally add it to your projects
+---
+
+## Requirements
+
+Before installing gstack, make sure you have:
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - The AI coding assistant from Anthropic
+- [Git](https://git-scm.com/) - For cloning the repository
+- [Bun](https://bun.sh/) v1.0+ - JavaScript runtime for building the browser binary
+
+<Note>
+The `/browse` skill compiles a native binary — works on **macOS** and **Linux** (x64 and arm64).
+</Note>
+
+## Step 1: Install on Your Machine
+
+This installs gstack globally in your Claude Code configuration so it's available in all your sessions.
+
+Open Claude Code and paste this command:
+
+```bash
+Install gstack: run `git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, and lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro. Then ask the user if they also want to add gstack to the current project so teammates get it.
+```
+
+Claude will:
+
+<Steps>
+  <Step title="Clone the repository">
+    Downloads gstack to `~/.claude/skills/gstack/`
+  </Step>
+  
+  <Step title="Run setup script">
+    The `./setup` script:
+    - Installs dependencies with `bun install`
+    - Compiles the browser binary (~58MB)
+    - Creates symlinks for each skill
+    - Makes everything ready to use
+  </Step>
+  
+  <Step title="Update CLAUDE.md">
+    Adds gstack configuration to your CLAUDE.md file so Claude knows about the new skills
+  </Step>
+  
+  <Step title="Verify installation">
+    Test that it works by running `/browse goto https://example.com` in Claude Code
+  </Step>
+</Steps>
+
+<Warning>
+If you don't have Bun installed, the setup will fail. Install it first:
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+</Warning>
+
+## Step 2: Add to Your Project (Optional)
+
+This makes gstack available to your teammates when they clone the repo. Real files get committed (not a submodule), so `git clone` just works.
+
+Paste this into Claude Code:
+
+```bash
+Add gstack to this project: run `cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup` then add a "gstack" section to this project's CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, lists the available skills: /plan-ceo-review, /plan-eng-review, /review, /ship, /browse, /qa, /setup-browser-cookies, /retro, and tells Claude that if gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+```
+
+<Steps>
+  <Step title="Copy gstack to project">
+    Copies from `~/.claude/skills/gstack/` to `.claude/skills/gstack/` in your project
+  </Step>
+  
+  <Step title="Remove git history">
+    Removes the `.git` directory so it's not a submodule
+  </Step>
+  
+  <Step title="Run setup">
+    Builds the binary in the project directory
+  </Step>
+  
+  <Step title="Update project CLAUDE.md">
+    Adds gstack configuration to the project's CLAUDE.md
+  </Step>
+</Steps>
+
+### What Gets Committed
+
+When you add gstack to your project:
+
+**Committed to Git:**
+- Skill files (`.md` files)
+- Source code
+- Setup scripts
+- `.gitignore` (excludes binary and dependencies)
+
+**Gitignored (teammates build locally):**
+- `browse/dist/browse` - The compiled binary
+- `node_modules/` - Dependencies
+
+Teammates just need to run `cd .claude/skills/gstack && ./setup` once after cloning. Or, `/browse` handles it automatically on first use.
+
+## Verify Installation
+
+Test that gstack is working:
+
+```bash
+# Check that skills are available
+ls -la ~/.claude/skills/ | grep gstack
+
+# Test the browse command
+~/.claude/skills/gstack/browse/dist/browse goto https://example.com
+
+# In Claude Code, try a skill
+/browse goto https://example.com
+```
+
+You should see:
+- Symlinks for each skill in `~/.claude/skills/`
+- The browser navigates to the URL
+- No errors in the output
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Skill not showing up in Claude Code?">
+    Run the setup script again to rebuild symlinks:
+    
+    ```bash
+    cd ~/.claude/skills/gstack && ./setup
+    ```
+    
+    For project installs:
+    
+    ```bash
+    cd .claude/skills/gstack && ./setup
+    ```
+  </Accordion>
+  
+  <Accordion title="/browse fails or binary not found?">
+    Manually compile the browser binary:
+    
+    ```bash
+    cd ~/.claude/skills/gstack
+    bun install
+    bun run build
+    ```
+    
+    This requires Bun v1.0+. If you don't have Bun:
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+  </Accordion>
+  
+  <Accordion title="Project copy is stale?">
+    Re-copy from global installation:
+    
+    ```bash
+    for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup
+    ```
+  </Accordion>
+  
+  <Accordion title="Permission denied when running setup?">
+    Make the setup script executable:
+    
+    ```bash
+    chmod +x ~/.claude/skills/gstack/setup
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## What's Next
+
+Now that gstack is installed, learn how to use it:
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Get to your first working workflow in 5 minutes
+</Card>
+
+## Upgrading
+
+When a new version of gstack is released, paste this into Claude Code:
+
+```bash
+Update gstack: run `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main && ./setup`. If this project also has gstack at .claude/skills/gstack, update it too: run `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack && cp -Rf ~/.claude/skills/gstack .claude/skills/gstack && rm -rf .claude/skills/gstack/.git && cd .claude/skills/gstack && ./setup`
+```
+
+The `setup` script rebuilds the browser binary and re-symlinks skills. It takes a few seconds.
+
+## Uninstalling
+
+To remove gstack completely, paste this into Claude Code:
+
+```bash
+Uninstall gstack: remove the skill symlinks by running `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f ~/.claude/skills/$s; done` then run `rm -rf ~/.claude/skills/gstack` and remove the gstack section from CLAUDE.md. If this project also has gstack at .claude/skills/gstack, remove it by running `for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do rm -f .claude/skills/$s; done && rm -rf .claude/skills/gstack` and remove the gstack section from the project CLAUDE.md too.
+```

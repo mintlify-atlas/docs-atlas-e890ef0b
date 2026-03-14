@@ -1,0 +1,400 @@
+---
+title: "/qa"
+description: "Systematic QA testing with health scores, screenshots, and structured reports"
+---
+
+## What it does
+
+`/qa` is your **QA lead mode**. It systematically tests web applications like a real user - clicks everything, fills every form, checks every state. Produces structured reports with health scores, screenshots, and repro steps.
+
+`/browse` gives Claude eyes. `/qa` gives it a testing methodology.
+
+<Note>
+The most common use case: you're on a feature branch, you just finished coding, and you want to verify everything works. Just say `/qa` - it reads your git diff, identifies affected pages, and tests each one.
+</Note>
+
+## When to use it
+
+Use `/qa` when you want to:
+- Test a feature branch after implementation (diff-aware mode)
+- Systematically explore an entire application (full mode)
+- Run a quick smoke test (30 seconds)
+- Compare quality against a previous baseline (regression mode)
+- Document bugs with evidence (screenshots, console logs, repro steps)
+
+## Four modes
+
+### Diff-aware (automatic on feature branches)
+
+**This is the primary mode** for developers verifying their work. When you say `/qa` without a URL and you're on a feature branch:
+
+<Steps>
+  <Step title="Analyze the branch diff">
+    ```bash
+    git diff main...HEAD --name-only
+    git log main..HEAD --oneline
+    ```
+  </Step>
+  
+  <Step title="Identify affected pages/routes">
+    - Controller/route files → which URL paths they serve
+    - View/template/component files → which pages render them
+    - Model/service files → which pages use those models
+    - API endpoints → test them directly
+  </Step>
+  
+  <Step title="Detect the running app">
+    Check common local dev ports:
+    ```bash
+    http://localhost:3000
+    http://localhost:4000
+    http://localhost:8080
+    ```
+  </Step>
+  
+  <Step title="Test each affected page">
+    - Navigate to the page
+    - Take screenshot
+    - Check console for errors
+    - If change was interactive (forms, buttons, flows), test end-to-end
+    - Use `snapshot -D` before/after actions to verify expected effect
+  </Step>
+  
+  <Step title="Report findings">
+    Scoped to branch changes:
+    - "Changes tested: N pages/routes affected by this branch"
+    - For each: does it work? Screenshot evidence.
+    - Any regressions on adjacent pages?
+  </Step>
+</Steps>
+
+### Full (default when URL is provided)
+
+Systematic exploration. Visit every reachable page. Document 5-10 well-evidenced issues. Produce health score. Takes 5-15 minutes depending on app size.
+
+### Quick (`--quick`)
+
+30-second smoke test. Visit homepage + top 5 navigation targets. Check: page loads? Console errors? Broken links? Produce health score.
+
+### Regression (`--regression <baseline>`)
+
+Run full mode, then load `baseline.json` from a previous run. Diff: which issues are fixed? Which are new? What's the score delta?
+
+## Real example
+
+From the README:
+
+```bash
+You:   /qa
+
+Claude: Analyzing branch diff against main...
+        12 files changed: 3 controllers, 2 views, 4 services, 3 tests
+
+        Affected routes: /listings/new, /listings/:id, /api/listings
+        Detected app running on localhost:3000.
+
+        [Tests each affected page — navigates, fills forms, clicks buttons,
+        screenshots, checks console errors]
+
+        QA Report: 3 routes tested, all working.
+        - /listings/new: upload + enrichment flow works end to end
+        - /listings/:id: detail page renders correctly
+        - /api/listings: returns 200 with expected shape
+        No console errors. No regressions on adjacent pages.
+```
+
+Full mode on staging:
+
+```bash
+You:   /qa https://staging.myapp.com
+
+Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
+
+        QA Report: staging.myapp.com — Health Score: 72/100
+
+        Top 3 Issues:
+        1. CRITICAL: Checkout form submits with empty required fields
+        2. HIGH: Mobile nav menu doesn't close after selecting an item
+        3. MEDIUM: Dashboard chart overlaps sidebar below 1024px
+
+        [Full report with screenshots saved to .gstack/qa-reports/]
+```
+
+## Health score rubric
+
+Compute each category score (0-100), then take the weighted average.
+
+### Console (weight: 15%)
+- 0 errors → 100
+- 1-3 errors → 70
+- 4-10 errors → 40
+- 10+ errors → 10
+
+### Links (weight: 10%)
+- 0 broken → 100
+- Each broken link → -15 (minimum 0)
+
+### Per-category scoring
+
+Each category starts at 100. Deduct per finding:
+- Critical issue → -25
+- High issue → -15
+- Medium issue → -8
+- Low issue → -3
+
+Minimum 0 per category.
+
+### Weights
+
+| Category | Weight |
+|----------|--------|
+| Console | 15% |
+| Links | 10% |
+| Visual | 10% |
+| Functional | 20% |
+| UX | 15% |
+| Performance | 10% |
+| Content | 5% |
+| Accessibility | 15% |
+
+**Final Score:** `score = Σ (category_score × weight)`
+
+## Workflow
+
+<Steps>
+  <Step title="Phase 1: Initialize">
+    - Find browse binary
+    - Create output directories (`.gstack/qa-reports/screenshots/`)
+    - Copy report template
+    - Start timer
+  </Step>
+  
+  <Step title="Phase 2: Authenticate (if needed)">
+    If user specified auth:
+    ```bash
+    $B goto <login-url>
+    $B snapshot -i
+    $B fill @e3 "user@example.com"
+    $B fill @e4 "[REDACTED]"
+    $B click @e5
+    $B snapshot -D
+    ```
+    
+    Or import cookies:
+    ```bash
+    $B cookie-import cookies.json
+    $B goto <target-url>
+    ```
+  </Step>
+  
+  <Step title="Phase 3: Orient">
+    Get a map of the application:
+    ```bash
+    $B goto <target-url>
+    $B snapshot -i -a -o "$REPORT_DIR/screenshots/initial.png"
+    $B links
+    $B console --errors
+    ```
+    
+    Detect framework (Next.js, Rails, WordPress, SPA)
+  </Step>
+  
+  <Step title="Phase 4: Explore">
+    Visit pages systematically. At each page:
+    ```bash
+    $B goto <page-url>
+    $B snapshot -i -a -o "$REPORT_DIR/screenshots/page-name.png"
+    $B console --errors
+    ```
+    
+    Per-page exploration checklist:
+    1. Visual scan (layout issues)
+    2. Interactive elements (click buttons, links)
+    3. Forms (fill and submit, test edge cases)
+    4. Navigation (check all paths)
+    5. States (empty, loading, error, overflow)
+    6. Console (any new JS errors?)
+    7. Responsiveness (mobile viewport if relevant)
+  </Step>
+  
+  <Step title="Phase 5: Document">
+    Document each issue immediately when found.
+    
+    **Interactive bugs:**
+    1. Screenshot before action
+    2. Perform action
+    3. Screenshot showing result
+    4. Use `snapshot -D` to show what changed
+    5. Write repro steps
+    
+    **Static bugs:**
+    1. Annotated screenshot showing the problem
+    2. Describe what's wrong
+  </Step>
+  
+  <Step title="Phase 6: Wrap Up">
+    - Compute health score
+    - Write "Top 3 Things to Fix"
+    - Aggregate console errors
+    - Update severity counts
+    - Fill report metadata
+    - Save `baseline.json`
+  </Step>
+</Steps>
+
+## Per-page exploration checklist
+
+From `qa/references/issue-taxonomy.md`:
+
+1. **Visual scan** - Look at annotated screenshot for layout issues
+2. **Interactive elements** - Click buttons, links, controls. Do they work?
+3. **Forms** - Fill and submit. Test empty, invalid, edge cases
+4. **Navigation** - Check all paths in and out
+5. **States** - Empty state, loading, error, overflow
+6. **Console** - Any new JS errors after interactions?
+7. **Responsiveness** - Check mobile viewport:
+   ```bash
+   $B viewport 375x812
+   $B screenshot "$REPORT_DIR/screenshots/page-mobile.png"
+   $B viewport 1280x720
+   ```
+
+## Framework-specific guidance
+
+<Accordion title="Next.js">
+- Check console for hydration errors (`Hydration failed`, `Text content did not match`)
+- Monitor `_next/data` requests - 404s indicate broken data fetching
+- Test client-side navigation (click links, don't just `goto`) - catches routing issues
+- Check for CLS (Cumulative Layout Shift) on dynamic content pages
+</Accordion>
+
+<Accordion title="Rails">
+- Check for N+1 query warnings in console (if development mode)
+- Verify CSRF token presence in forms
+- Test Turbo/Stimulus integration - smooth page transitions?
+- Check flash messages appearing and dismissing correctly
+</Accordion>
+
+<Accordion title="WordPress">
+- Check for plugin conflicts (JS errors from different plugins)
+- Verify admin bar visibility for logged-in users
+- Test REST API endpoints (`/wp-json/`)
+- Check for mixed content warnings (common with WP)
+</Accordion>
+
+<Accordion title="General SPA (React, Vue, Angular)">
+- Use `snapshot -i` for navigation - `links` command misses client-side routes
+- Check for stale state (navigate away and back - does data refresh?)
+- Test browser back/forward - does the app handle history correctly?
+- Check for memory leaks (monitor console after extended use)
+</Accordion>
+
+## Output structure
+
+```
+.gstack/qa-reports/
+├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
+├── screenshots/
+│   ├── initial.png                        # Landing page annotated
+│   ├── issue-001-step-1.png               # Per-issue evidence
+│   ├── issue-001-result.png
+│   └── ...
+└── baseline.json                          # For regression mode
+```
+
+Report filenames use domain and date: `qa-report-myapp-com-2026-03-12.md`
+
+## Important rules
+
+<Warning>
+1. **Repro is everything** - Every issue needs at least one screenshot
+2. **Verify before documenting** - Retry the issue once to confirm it's reproducible
+3. **Never include credentials** - Write `[REDACTED]` for passwords
+4. **Write incrementally** - Append each issue as you find it, don't batch
+5. **Never read source code** - Test as a user, not a developer
+6. **Check console after every interaction** - JS errors that don't surface visually are still bugs
+7. **Depth over breadth** - 5-10 well-documented issues > 20 vague descriptions
+</Warning>
+
+## Example workflow
+
+```bash
+# Diff-aware mode (automatic on feature branch)
+You:   /qa
+
+Claude: Analyzing branch diff against main...
+        8 files changed, 3 routes affected.
+        
+        Testing /listings/new...
+        > $B goto http://localhost:3000/listings/new
+        > $B snapshot -i -a -o .gstack/qa-reports/screenshots/listings-new.png
+        > $B console --errors
+        
+        Page loads. Upload form visible. No console errors.
+        Testing upload flow...
+        
+        > $B upload "@e3" /tmp/test-image.jpg
+        > $B click @e5
+        > $B snapshot -D
+        
+        Upload succeeded. Enrichment kicked off. Draft title appeared.
+        
+        Testing /listings/:id...
+        > $B goto http://localhost:3000/listings/1
+        > $B screenshot .gstack/qa-reports/screenshots/listing-detail.png
+        
+        Detail page renders. Photos display correctly.
+        
+        QA Report: 3 routes tested, all working.
+        No console errors. Upload + enrichment flow passes end to end.
+
+# Full mode on staging
+You:   /qa https://staging.myapp.com
+
+Claude: [Systematic exploration...]
+        Health Score: 78/100
+        Top 3 Issues: ...
+        [Report saved to .gstack/qa-reports/]
+
+# Quick smoke test
+You:   /qa https://prod.myapp.com --quick
+
+Claude: [30-second smoke test]
+        Health Score: 91/100. No critical issues.
+        1 medium: mobile nav overlap.
+```
+
+## Tips
+
+<Accordion title="Testing authenticated pages">
+Use `/setup-browser-cookies` first to import your real browser sessions:
+
+```bash
+You:   /setup-browser-cookies staging.myapp.com
+Claude: Imported 8 cookies for staging.myapp.com from Chrome.
+
+You:   /qa https://staging.myapp.com
+Claude: [Tests authenticated pages without manual login]
+```
+</Accordion>
+
+<Accordion title="Regression testing">
+```bash
+# First run - establish baseline
+You:   /qa https://staging.myapp.com
+Claude: Health Score: 72/100
+        [Saves baseline.json]
+
+# After fixes - compare
+You:   /qa https://staging.myapp.com --regression .gstack/qa-reports/baseline.json
+Claude: Health Score: 85/100 (↑13)
+        Issues fixed: 3
+        New issues: 1
+```
+</Accordion>
+
+## Related skills
+
+- [`/browse`](/skills/browse) - Headless browser skill (used internally by `/qa`)
+- [`/setup-browser-cookies`](/skills/setup-browser-cookies) - Import cookies for authenticated testing
+- [`/ship`](/skills/ship) - Ship workflow

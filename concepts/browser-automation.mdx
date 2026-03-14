@@ -1,0 +1,425 @@
+---
+title: Browser Automation
+description: How the persistent browser daemon works, ref system, and state management
+---
+
+## The Problem
+
+AI agents need to **see** what they're building. Before `/browse`, the agent could write code but was half-blind:
+
+- Can't inspect live UI state
+- Can't test auth flows (requires login)
+- Can't check console errors or network requests
+- Can't verify redirects, empty states, or broken layouts
+
+The solution: give the agent a real browser with sub-second latency and persistent state.
+
+## Architecture: Daemon Model
+
+### Why Not Start a Browser Per Command?
+
+Playwright can launch Chromium in ~2-3 seconds. For a single screenshot, that's fine. For a QA session with 20+ commands, it's **40+ seconds of startup overhead**.
+
+Worse: you lose all state between commands. Cookies, localStorage, login sessions, open tabs — all gone.
+
+### The gstack Approach: Persistent Daemon
+
+```
+Claude Code                     gstack
+─────────                      ──────
+                               ┌──────────────────────┐
+  Tool call: $B snapshot -i    │  CLI (compiled binary)│
+  ─────────────────────────→   │  • reads state file   │
+                               │  • POST /command      │
+                               │    to localhost:PORT   │
+                               └──────────┬───────────┘
+                                          │ HTTP
+                               ┌──────────▼───────────┐
+                               │  Server (Bun.serve)   │
+                               │  • dispatches command  │
+                               │  • talks to Chromium   │
+                               │  • returns plain text  │
+                               └──────────┬───────────┘
+                                          │ CDP (Chrome DevTools Protocol)
+                               ┌──────────▼───────────┐
+                               │  Chromium (headless)   │
+                               │  • persistent tabs     │
+                               │  • cookies carry over  │
+                               │  • 30min idle timeout  │
+                               └───────────────────────┘
+```
+
+**First call:** ~3 seconds (cold start Chromium + HTTP server)  
+**Every call after:** ~100-200ms (just HTTP POST to localhost)
+
+<Info>
+**Why HTTP instead of WebSocket or MCP?**
+
+- HTTP is simpler, debuggable with `curl`, and fast enough
+- No JSON schema overhead per request (MCP requirement)
+- No persistent connection management (WebSocket complexity)
+- Plain text output is lighter on tokens
+</Info>
+
+## State Management
+
+### State File: `.gstack/browse.json`
+
+Written atomically (tmp + rename) with mode `0o600` (owner-only read):
+
+```json
+{
+  "pid": 12345,
+  "port": 34567,
+  "token": "uuid-v4",
+  "startedAt": "2026-03-14T10:30:00Z",
+  "binaryVersion": "abc123"
+}
+```
+
+The CLI reads this file to find the running server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server.
+
+### Port Selection
+
+**Random port between 10000-60000** (retry up to 5 on collision).
+
+This means **10 Conductor workspaces can each run their own browse daemon** with zero configuration and zero port conflicts.
+
+<Tip>
+The old approach (scanning 9400-9409) broke constantly in multi-workspace setups. Random ports solved this entirely.
+</Tip>
+
+### Version Auto-Restart
+
+The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI invocation:
+
+1. Read `.version` from binary directory
+2. Compare to running server's `binaryVersion` (from state file)
+3. If mismatch: kill old server, start new one
+
+This prevents the "stale binary" class of bugs entirely — **rebuild the binary, next command picks it up automatically.**
+
+### Idle Timeout
+
+Server auto-shuts down after **30 minutes of idle time**. No manual cleanup needed.
+
+## The Ref System
+
+Refs (`@e1`, `@e2`, `@c1`) are how the agent addresses page elements **without writing CSS selectors or XPath**.
+
+### How It Works
+
+```
+1. Agent runs: $B snapshot -i
+2. Server calls Playwright's page.accessibility.snapshot()
+3. Parser walks the ARIA tree, assigns sequential refs: @e1, @e2, @e3...
+4. For each ref, builds a Playwright Locator: getByRole(role, { name }).nth(index)
+5. Stores Map<string, Locator> on the BrowserManager instance
+6. Returns the annotated tree as plain text
+
+Later:
+7. Agent runs: $B click @e3
+8. Server resolves @e3 → Locator → locator.click()
+```
+
+### Example Snapshot Output
+
+```
+$B snapshot -i
+
+@e1 [button] "Sign In"
+@e2 [textbox] "Email"
+@e3 [textbox] "Password"
+@e4 [link] "Forgot password?"
+@e5 [button] "Create Account"
+```
+
+Now the agent can say:
+
+```bash
+$B fill @e2 "test@example.com"
+$B fill @e3 "password123"
+$B click @e1
+```
+
+<Warning>
+**Refs are cleared on navigation.** After the page navigates (detected via `framenavigated` event), all locators are stale. The agent must run `snapshot` again to get fresh refs.
+
+This is by design — stale refs should fail loudly, not click the wrong element.
+</Warning>
+
+### Why Locators, Not DOM Mutation?
+
+The obvious approach is to inject `data-ref="@e1"` attributes into the DOM. This breaks on:
+
+- **CSP (Content Security Policy)** — Many production sites block DOM modification from scripts
+- **React/Vue/Svelte hydration** — Framework reconciliation can strip injected attributes
+- **Shadow DOM** — Can't reach inside shadow roots from the outside
+
+**Playwright Locators are external to the DOM.** They use the accessibility tree (which Chromium maintains internally) and `getByRole()` queries. No DOM mutation, no CSP issues, no framework conflicts.
+
+### Cursor-Interactive Refs (`@c`)
+
+The `-C` flag finds elements that are **clickable but not in the ARIA tree** — things styled with `cursor: pointer`, elements with `onclick` attributes, or custom `tabindex`.
+
+These get `@c1`, `@c2` refs in a separate namespace:
+
+```bash
+$B snapshot -i -C
+
+@e1 [button] "Sign In"
+@e2 [textbox] "Email"
+@e3 [textbox] "Password"
+
+── cursor-interactive (not in ARIA tree) ──
+@c1 [cursor:pointer, onclick] "View details"
+@c2 [tabindex=0] "Custom dropdown trigger"
+```
+
+This catches custom components that frameworks render as `<div>` but are actually buttons.
+
+## Snapshot Flags Reference
+
+| Flag | Description | Example |
+|------|-------------|----------|
+| `-i` / `--interactive` | Interactive elements only (buttons, links, inputs) | `$B snapshot -i` |
+| `-c` / `--compact` | Remove empty structural nodes | `$B snapshot -c` |
+| `-d <N>` / `--depth <N>` | Limit tree depth (0 = root only) | `$B snapshot -d 2` |
+| `-s <sel>` / `--selector <sel>` | Scope to CSS selector | `$B snapshot -s "nav"` |
+| `-D` / `--diff` | Unified diff vs previous snapshot | `$B snapshot -D` |
+| `-a` / `--annotate` | Screenshot with red overlay boxes + ref labels | `$B snapshot -a` |
+| `-o <path>` / `--output <path>` | Output path for annotated screenshot | `$B snapshot -a -o /tmp/page.png` |
+| `-C` / `--cursor-interactive` | Scan for cursor:pointer/onclick elements (`@c` refs) | `$B snapshot -i -C` |
+
+<Accordion title="What does -D (diff mode) do?">
+  On the first call, stores the snapshot text as a baseline. On subsequent calls, returns a unified diff showing what changed in the page structure.
+  
+  Useful for detecting UI changes after an action:
+  
+  ```bash
+  $B snapshot -i        # Baseline
+  $B click @e5          # Perform action
+  $B snapshot -i -D     # Show diff
+  ```
+</Accordion>
+
+<Accordion title="When should I use -C (cursor-interactive)?">
+  Use `-C` when testing custom UI frameworks (React, Vue, Svelte) that render clickable divs instead of semantic buttons. These elements won't appear in the ARIA tree but are still interactive.
+  
+  **Don't use** on every snapshot — it's slower (scans all DOM elements) and rarely needed on semantic HTML.
+</Accordion>
+
+## Logging Architecture
+
+Three ring buffers (50,000 entries each, O(1) push):
+
+```
+Browser events → CircularBuffer (in-memory) → Async flush to .gstack/*.log
+```
+
+- **Console messages** → `browse-console.log`
+- **Network requests** → `browse-network.log`
+- **Dialog events** (alert/confirm/prompt) → `browse-dialog.log`
+
+Flushing happens **every 1 second** — the server appends only new entries since the last flush. This means:
+
+- HTTP request handling is never blocked by disk I/O
+- Logs survive server crashes (up to 1 second of data loss)
+- Memory is bounded (50K entries × 3 buffers)
+- Disk files are append-only, readable by external tools
+
+The `console`, `network`, and `dialog` commands **read from in-memory buffers**, not disk. Disk files are for post-mortem debugging.
+
+### Example Log Output
+
+```bash
+$B console --errors
+
+[2026-03-14T10:45:12.123Z] [error] Uncaught TypeError: Cannot read property 'map' of undefined
+[2026-03-14T10:45:15.456Z] [warning] React does not recognize the `isActive` prop on a DOM element
+```
+
+```bash
+$B network
+
+[2026-03-14T10:45:10.000Z] GET https://app.com/api/listings → 200 (145ms, 2048B)
+[2026-03-14T10:45:11.234Z] POST https://app.com/api/photos → 201 (523ms, 156B)
+[2026-03-14T10:45:12.000Z] GET https://cdn.example.com/style.css → 304 (42ms, 0B)
+```
+
+## Security Model
+
+### Localhost Only
+
+The HTTP server binds to `127.0.0.1`, **not `0.0.0.0`**. It's not reachable from the network.
+
+### Bearer Token Auth
+
+Every server session generates a random UUID token, written to the state file with mode `0o600` (owner-only read). Every HTTP request must include:
+
+```
+Authorization: Bearer <token>
+```
+
+If the token doesn't match, the server returns 401.
+
+**Exception:** The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands.
+
+### Cookie Security
+
+Cookies are the most sensitive data gstack handles. The design:
+
+1. **Keychain access requires user approval** — First cookie import per browser triggers a macOS Keychain dialog. The user must click "Allow" or "Always Allow." gstack never silently accesses credentials.
+
+2. **Decryption happens in-process** — Cookie values are decrypted in memory (PBKDF2 + AES-128-CBC), loaded into the Playwright context, and **never written to disk in plaintext**.
+
+3. **Database is read-only** — gstack copies the Chromium cookie DB to a temp file (to avoid SQLite lock conflicts with the running browser) and opens it read-only. It never modifies your real browser's cookie database.
+
+4. **Key caching is per-session** — The Keychain password + derived AES key are cached in memory for the server's lifetime. When the server shuts down (idle timeout or explicit stop), the cache is gone.
+
+5. **No cookie values in logs** — Console, network, and dialog logs never contain cookie values. The `cookies` command outputs cookie metadata (domain, name, expiry) but values are truncated.
+
+<Warning>
+**Cookie import is macOS-only.** Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
+</Warning>
+
+## Command Dispatch
+
+Commands are categorized by side effects:
+
+```typescript
+// browse/src/commands.ts
+
+export const READ_COMMANDS = new Set([
+  'text', 'html', 'links', 'forms', 'accessibility',
+  'js', 'eval', 'css', 'attrs',
+  'console', 'network', 'cookies', 'storage', 'perf',
+  'dialog', 'is',
+]);
+
+export const WRITE_COMMANDS = new Set([
+  'goto', 'back', 'forward', 'reload',
+  'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
+  'viewport', 'cookie', 'cookie-import', 'cookie-import-browser',
+  'header', 'useragent', 'upload', 'dialog-accept', 'dialog-dismiss',
+]);
+
+export const META_COMMANDS = new Set([
+  'tabs', 'tab', 'newtab', 'closetab',
+  'status', 'stop', 'restart',
+  'screenshot', 'pdf', 'responsive',
+  'chain', 'diff', 'url', 'snapshot',
+]);
+```
+
+The server uses this for dispatch:
+
+```typescript
+if (READ_COMMANDS.has(cmd))  → handleReadCommand(cmd, args, bm)
+if (WRITE_COMMANDS.has(cmd)) → handleWriteCommand(cmd, args, bm)
+if (META_COMMANDS.has(cmd))  → handleMetaCommand(cmd, args, bm, shutdown)
+```
+
+This categorization also appears in the auto-generated help text.
+
+## Crash Recovery
+
+The server **doesn't try to self-heal**. If Chromium crashes (`browser.on('disconnected')`), the server exits immediately with a clear message:
+
+```
+[browse] FATAL: Chromium process crashed or was killed. Server exiting.
+[browse] Console/network logs flushed to .gstack/browse-*.log
+```
+
+The CLI detects the dead server on the next command and auto-restarts.
+
+**Why not reconnect?** Trying to reconnect to a half-dead browser process is complex and unreliable. Clean exit + auto-restart is simpler and more predictable.
+
+## Performance Characteristics
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Cold start (first command) | ~3s | Launches Chromium + HTTP server |
+| Subsequent commands | 100-200ms | HTTP POST to localhost |
+| Memory (idle) | ~150MB | Chromium + Bun runtime |
+| Memory (10 tabs) | ~250MB | Each tab adds ~10-20MB |
+| Idle timeout | 30 min | Auto-shutdown, configurable via `BROWSE_IDLE_TIMEOUT` |
+| Port range | 10000-60000 | Random allocation, 5 retries |
+| Max parallel instances | Unlimited | Each workspace gets its own daemon |
+
+<Tip>
+**Running 10 parallel Conductor workspaces?** Each gets its own isolated browser daemon. Total memory: ~1.5-2GB. This is the recommended setup for power users.
+</Tip>
+
+## What's Intentionally NOT Here
+
+- **No iframe support** — Playwright can handle iframes but the ref system doesn't cross frame boundaries yet. This is the most-requested missing feature.
+- **No Windows/Linux cookie decryption** — macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
+- **No multi-user support** — One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
+- **No WebSocket streaming** — HTTP request/response is simpler, debuggable with curl, and fast enough.
+- **No MCP protocol** — MCP adds JSON schema overhead per request. Plain HTTP + plain text output is lighter on tokens.
+
+## Common Patterns
+
+### Pattern 1: Login Once, Test Many
+
+```bash
+# Import cookies from your real browser
+/setup-browser-cookies github.com
+
+# Now browse authenticated pages
+$B goto https://github.com/settings
+$B snapshot -i
+$B screenshot /tmp/settings.png
+```
+
+Cookies persist across commands. No need to log in manually every time.
+
+### Pattern 2: Diff-Driven Testing
+
+```bash
+# Baseline snapshot
+$B snapshot -i
+
+# Perform action
+$B click @e5
+
+# See what changed
+$B snapshot -i -D
+```
+
+Useful for verifying that a button click actually updated the page.
+
+### Pattern 3: Multi-Tab Workflows
+
+```bash
+$B newtab https://staging.myapp.com
+$B newtab https://production.myapp.com
+$B tabs
+
+# Output:
+# Tab 1: https://staging.myapp.com (active)
+# Tab 2: https://production.myapp.com
+
+$B tab 2                    # Switch to production
+$B snapshot -i              # Compare UIs
+```
+
+Tabs are persistent. You can switch between them without reloading.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Command Reference" icon="terminal" href="/commands/browse/overview">
+    Full list of browse commands and usage examples
+  </Card>
+  <Card title="Architecture Deep Dive" icon="sitemap" href="/concepts/architecture">
+    SKILL.md template system, test tiers, build process
+  </Card>
+  <Card title="Cookie Management" icon="cookie" href="/guides/cookie-management">
+    Import cookies from Chrome, Arc, Brave, Edge, or Comet
+  </Card>
+  <Card title="QA Testing" icon="check" href="/guides/qa-testing">
+    Systematic testing with `/qa`
+  </Card>
+</CardGroup>

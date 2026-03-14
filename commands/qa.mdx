@@ -1,0 +1,282 @@
+---
+title: '/qa Command'
+description: 'Systematic QA testing with diff-aware mode, full exploration, quick smoke tests, and regression tracking'
+icon: 'flask'
+---
+
+## Overview
+
+`/qa` systematically tests web applications like a real user — clicking everything, filling forms, checking states, and producing structured reports with evidence. It's your QA lead mode.
+
+**Most common use case:** You're on a feature branch and just finished coding. Say `/qa` — it reads your git diff, identifies affected pages, and tests them automatically.
+
+## Command Syntax
+
+```bash
+/qa                                    # Diff-aware mode (auto-detect from branch)
+/qa https://myapp.com                  # Full mode on specific URL
+/qa --quick                            # 30-second smoke test
+/qa --regression .gstack/qa-reports/baseline.json  # Compare against baseline
+```
+
+## Modes
+
+### Diff-Aware Mode (Default on Feature Branches)
+
+**When:** You're on a feature branch without specifying a URL
+
+**What it does:**
+1. Analyzes `git diff main...HEAD` to understand what changed
+2. Identifies affected pages/routes from changed files
+3. Detects your running app (localhost:3000, 4000, 8080)
+4. Tests each affected page/route specifically
+5. Reports findings scoped to branch changes
+
+<Steps>
+  <Step title="Analyze the diff">
+    Reads changed files and commit messages to understand the scope
+  </Step>
+  
+  <Step title="Map files to routes">
+    - Controller/route files → URL paths they serve
+    - View/template files → pages that render them
+    - Model/service files → pages using those models
+    - API endpoints → test with direct fetch calls
+  </Step>
+  
+  <Step title="Test affected pages">
+    Navigate to each page, take screenshots, check console, test interactions
+  </Step>
+  
+  <Step title="Report">
+    "Changes tested: N pages/routes affected by this branch" with screenshot evidence
+  </Step>
+</Steps>
+
+**Example:**
+
+```bash
+You:   /qa
+
+Claude: Analyzing branch diff against main...
+        12 files changed: 3 controllers, 2 views, 4 services, 3 tests
+        
+        Affected routes: /listings/new, /listings/:id, /api/listings
+        Detected app running on localhost:3000.
+        
+        [Tests each affected page]
+        
+        QA Report: 3 routes tested, all working.
+        - /listings/new: upload + enrichment flow works end to end
+        - /listings/:id: detail page renders correctly  
+        - /api/listings: returns 200 with expected shape
+        No console errors. No regressions on adjacent pages.
+```
+
+### Full Mode
+
+**When:** You provide a URL
+
+**What it does:** Systematic exploration of the entire app. Visits every reachable page, documents 5-10 well-evidenced issues, produces health score.
+
+**Time:** 5-15 minutes depending on app size
+
+**Example:**
+
+```bash
+/qa https://staging.myapp.com
+```
+
+<Note>
+  Full mode produces comprehensive reports with screenshots saved to `.gstack/qa-reports/`
+</Note>
+
+### Quick Mode
+
+**When:** You need a fast smoke test
+
+**What it does:** 30-second smoke test. Homepage + top 5 navigation targets. Checks: page loads? Console errors? Broken links?
+
+**Example:**
+
+```bash
+/qa https://staging.myapp.com --quick
+```
+
+<Warning>
+  Quick mode skips detailed issue documentation. Use for fast checks only.
+</Warning>
+
+### Regression Mode
+
+**When:** You want to track quality over time
+
+**What it does:** Runs full mode, then compares against a previous baseline. Shows which issues are fixed, new issues, and score delta.
+
+**Example:**
+
+```bash
+/qa https://myapp.com --regression .gstack/qa-reports/baseline.json
+```
+
+## Per-Page Exploration Checklist
+
+At each page, `/qa` checks:
+
+1. **Visual scan** — Layout issues in annotated screenshots
+2. **Interactive elements** — Buttons, links, controls work correctly
+3. **Forms** — Fill and submit with empty, invalid, edge cases
+4. **Navigation** — All paths in and out
+5. **States** — Empty state, loading, error, overflow
+6. **Console** — JavaScript errors after interactions
+7. **Responsiveness** — Mobile viewport if relevant
+
+## Health Score
+
+Computed from weighted category scores (0-100):
+
+| Category | Weight | Scoring |
+|----------|--------|----------|
+| Console | 15% | 0 errors → 100, 1-3 → 70, 4-10 → 40, 10+ → 10 |
+| Links | 10% | 0 broken → 100, each broken → -15 |
+| Functional | 20% | Deduct per issue: Critical -25, High -15, Medium -8, Low -3 |
+| UX | 15% | Same deduction scale |
+| Accessibility | 15% | Same deduction scale |
+| Visual | 10% | Same deduction scale |
+| Performance | 10% | Same deduction scale |
+| Content | 5% | Same deduction scale |
+
+**Final Score:** `Σ (category_score × weight)`
+
+## Output Structure
+
+```plaintext
+.gstack/qa-reports/
+├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
+├── screenshots/
+│   ├── initial.png                        # Landing page
+│   ├── issue-001-step-1.png               # Per-issue evidence
+│   ├── issue-001-result.png
+│   └── ...
+└── baseline.json                          # For regression mode
+```
+
+## Testing Authenticated Pages
+
+Use `/setup-browser-cookies` first to import real browser sessions:
+
+```bash
+/setup-browser-cookies staging.myapp.com
+/qa https://staging.myapp.com
+```
+
+Cookies persist in the browser session, so you only need to import once.
+
+## Framework-Specific Guidance
+
+<Accordion title="Next.js">
+  - Check console for hydration errors (`Hydration failed`)
+  - Monitor `_next/data` requests — 404s indicate broken data fetching
+  - Test client-side navigation (click links, don't just `goto`)
+  - Check for CLS (Cumulative Layout Shift) on dynamic content pages
+</Accordion>
+
+<Accordion title="Rails">
+  - Check for N+1 query warnings in console (development mode)
+  - Verify CSRF token presence in forms
+  - Test Turbo/Stimulus integration — smooth page transitions?
+  - Check flash messages appear and dismiss correctly
+</Accordion>
+
+<Accordion title="WordPress">
+  - Check for plugin conflicts (JS errors from different plugins)
+  - Verify admin bar visibility for logged-in users
+  - Test REST API endpoints (`/wp-json/`)
+  - Check for mixed content warnings
+</Accordion>
+
+<Accordion title="SPAs (React, Vue, Angular)">
+  - Use `snapshot -i` for navigation — `links` command misses client-side routes
+  - Check for stale state (navigate away and back — does data refresh?)
+  - Test browser back/forward — does app handle history correctly?
+  - Monitor console after extended use for memory leaks
+</Accordion>
+
+## Important Rules
+
+1. **Repro is everything** — Every issue needs at least one screenshot
+2. **Verify before documenting** — Retry once to confirm reproducibility
+3. **Never include credentials** — Write `[REDACTED]` for passwords
+4. **Write incrementally** — Append issues as you find them
+5. **Never read source code** — Test as a user, not a developer
+6. **Check console after every interaction** — Hidden JS errors are still bugs
+7. **Test like a user** — Use realistic data, complete workflows end-to-end
+8. **Depth over breadth** — 5-10 well-documented issues > 20 vague descriptions
+
+## Examples
+
+### Quick smoke test before deploying
+
+```bash
+/qa https://staging.myapp.com --quick
+```
+
+**Output:**
+```plaintext
+Health Score: 91/100
+Homepage + 5 pages tested in 28 seconds
+No critical issues. 1 medium: mobile nav overlap at 375px
+```
+
+### Full QA on production after launch
+
+```bash
+/qa https://myapp.com
+```
+
+**Output:**
+```plaintext
+Health Score: 72/100
+
+Top 3 Issues:
+1. CRITICAL: Checkout form submits with empty required fields
+2. HIGH: Mobile nav menu doesn't close after selecting item
+3. MEDIUM: Dashboard chart overlaps sidebar below 1024px
+
+[Full report: .gstack/qa-reports/qa-report-myapp-com-2026-03-14.md]
+[Screenshots: .gstack/qa-reports/screenshots/]
+```
+
+### Regression tracking
+
+```bash
+# First run - establish baseline
+/qa https://myapp.com
+
+# Later run - compare against baseline  
+/qa https://myapp.com --regression .gstack/qa-reports/baseline.json
+```
+
+**Output:**
+```plaintext
+Health Score: 82/100 (was 72/100, +10)
+
+Fixed issues:
+- CRITICAL: Checkout form validation (was issue #001)
+- HIGH: Mobile nav close behavior (was issue #002)
+
+New issues:
+- MEDIUM: Search results pagination breaks at page 10
+
+Regression: +10 points, 2 issues fixed, 1 new issue
+```
+
+## When to Use Each Mode
+
+| Scenario | Mode | Why |
+|----------|------|-----|
+| Just finished feature work | Diff-aware | Tests only what you changed |
+| Pre-deployment check | Quick | Fast confidence before going live |
+| Weekly quality audit | Full | Comprehensive coverage with evidence |
+| Tracking quality trends | Regression | Compare against historical baseline |
+| Testing after major refactor | Full | Ensure nothing broke across the app |

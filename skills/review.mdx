@@ -1,0 +1,265 @@
+---
+title: "/review"
+description: "Pre-landing PR review - find bugs that pass CI but blow up in production"
+---
+
+## What it does
+
+`/review` is your **paranoid staff engineer mode**. Passing tests don't mean the branch is safe.
+
+This skill exists because there's a whole class of bugs that can survive CI and still punch you in the face in production:
+- N+1 queries
+- Race conditions
+- Bad trust boundaries
+- Missing indexes
+- Stale reads
+- Broken invariants
+- Tests that pass while missing the real failure mode
+
+<Note>
+This is a structural audit, not a style nitpick pass. The skill looks for things that break in production, not lint violations.
+</Note>
+
+## When to use it
+
+Use `/review` when:
+- You've finished implementing a feature and want a structural review
+- Tests are passing but you want to catch production issues before they happen
+- You want to check for race conditions, N+1 queries, trust boundaries
+- You need to triage Greptile review comments on your PR
+
+## How it works
+
+The skill performs a **two-pass review** against your branch diff:
+
+### Pass 1: CRITICAL issues
+- **SQL & Data Safety** - N+1 queries, missing indexes, raw SQL injection risks, transaction boundaries
+- **LLM Output Trust Boundary** - Treating LLM output as trusted code, prompt injection vectors
+
+### Pass 2: INFORMATIONAL issues
+- **Conditional Side Effects** - Side effects hidden in conditionals
+- **Magic Numbers & String Coupling** - Hardcoded values that should be constants
+- **Dead Code & Consistency** - Unused code, inconsistent patterns
+- **LLM Prompt Issues** - Vague prompts, missing examples
+- **Test Gaps** - Missing test coverage for new codepaths
+- **View/Frontend** - Accessibility, responsive design
+
+<Warning>
+The skill reads the FULL diff before commenting. It won't flag issues already addressed in the diff.
+</Warning>
+
+## Greptile integration
+
+If you have [Greptile](https://greptile.com) installed on your GitHub repo, `/review` automatically triages its comments:
+
+<Steps>
+  <Step title="Fetches Greptile comments">
+    Uses `gh api` to fetch all review comments on the current PR
+  </Step>
+  
+  <Step title="Classifies each comment">
+    - **VALID & ACTIONABLE** - Real issues to fix
+    - **VALID BUT ALREADY FIXED** - Caught something you already addressed
+    - **FALSE POSITIVE** - Wrong or not applicable
+    - **SUPPRESSED** - Known false positives from previous triage
+  </Step>
+  
+  <Step title="Takes action">
+    - Valid issues → added to CRITICAL findings, offered as fixes
+    - Already fixed → auto-reply acknowledging the catch
+    - False positives → you confirm, skill replies and saves pattern
+  </Step>
+</Steps>
+
+### Learning over time
+
+Every false positive you confirm gets saved to `~/.gstack/greptile-history.md`. Future runs auto-skip known FP patterns for your codebase.
+
+`/retro` tracks Greptile's batting average over time so you can see if signal-to-noise is improving.
+
+## Real example
+
+From the README:
+
+```bash
+You:   /review
+
+Claude: Race condition: two tabs can overwrite cover-photo selection.
+        Trust boundary: pulling web data into draft generation creates
+        a prompt injection vector. Missing: orphan cleanup for failed uploads.
+```
+
+## What you'll get
+
+### If CRITICAL issues found:
+
+```
+Pre-Landing Review: 3 issues (2 critical, 1 informational)
+
+CRITICAL:
+
+1. app/services/listing_enrichment_service.rb:47
+   Trust boundary violation: Web-scraped product descriptions flow
+   directly into LLM prompt without sanitization. User can inject
+   via manipulated product pages.
+   
+   We recommend A: Sanitize and validate scraped content.
+   Here's why: Prevents prompt injection (trust boundary violation).
+   
+   A) Sanitize and validate scraped content (recommended)
+   B) Acknowledge and ship anyway
+   C) It's a false positive - skip
+
+2. app/controllers/listings_controller.rb:23
+   N+1 query: @listing.photos iteration hits DB for each photo's
+   metadata. Will be 1 + N queries on detail page.
+   
+   We recommend A: Add eager loading with includes(:photos).
+   Here's why: Prevents N+1 on user-facing page (performance).
+   
+   A) Add eager loading with includes(:photos) (recommended)
+   B) Acknowledge and ship anyway
+   C) It's a false positive - skip
+
+INFORMATIONAL:
+
+3. app/views/listings/new.html.erb:15
+   Missing empty state: upload form shows no guidance when no
+   photos uploaded yet.
+```
+
+For each critical issue, you choose:
+- **A: Fix it now** - Skill applies the fix and you re-run `/ship`
+- **B: Acknowledge** - Note it, ship anyway
+- **C: False positive** - Skip it
+
+### With Greptile comments:
+
+```
+Pre-Landing Review: 3 issues (2 critical, 1 informational)
++ 3 Greptile comments (1 valid, 1 fixed, 1 FP)
+
+[Your critical findings...]
+
+GREPTILE REVIEW:
+
+✓ ALREADY FIXED: app/models/user.rb:12
+  "Missing null check on email before downcase."
+  → Already fixed in commit abc1234. Auto-replied.
+
+⚠ FALSE POSITIVE: lib/auth.rb:88
+  "Token comparison should use constant-time comparison."
+  → We already use ActiveSupport::SecurityUtils.secure_compare.
+  
+  A) Reply to Greptile explaining (recommended)
+  B) Fix it anyway
+  C) Ignore
+```
+
+### If no issues:
+
+```
+Pre-Landing Review: No issues found.
+```
+
+## Checklist categories
+
+The review applies a comprehensive checklist from `.claude/skills/review/checklist.md` covering:
+
+<Accordion title="SQL & Data Safety">
+- Raw SQL with string interpolation → use parameterized queries
+- ActiveRecord without includes/preload → N+1 smell
+- Missing database indexes on foreign keys or frequently queried columns
+- Transactions without isolation level consideration
+- Schema changes without migration safety (add column → backfill → constraint)
+</Accordion>
+
+<Accordion title="LLM Output Trust Boundary">
+- LLM output flows into `eval`, `system`, `exec` without validation
+- LLM-generated SQL/code executed without sandboxing
+- LLM output rendered as HTML without escaping
+- Prompt injection vectors from user input → LLM → action
+</Accordion>
+
+<Accordion title="Conditional Side Effects">
+- Side effects (writes, API calls, state changes) hidden inside conditionals
+- Makes debugging and testing harder
+</Accordion>
+
+<Accordion title="Magic Numbers & String Coupling">
+- Hardcoded numbers that should be named constants
+- String literals duplicated across files
+</Accordion>
+
+<Accordion title="Test Gaps">
+- New codepaths without corresponding tests
+- Tests that only cover happy path
+- Missing edge case tests (nil, empty, boundary values)
+</Accordion>
+
+## Example workflow
+
+```bash
+# After implementing a feature
+You:   /review
+
+Claude: Pre-Landing Review: 2 issues (1 critical, 1 informational)
+        
+        CRITICAL:
+        
+        1. app/services/payment_service.rb:47
+           Race condition: concurrent charges can double-debit.
+           
+           We recommend A: Add DB-level advisory lock.
+           Here's why: Prevents double-charge (trust boundary).
+           
+           A) Add DB-level advisory lock around charge block (recommended)
+           B) Acknowledge and ship anyway
+           C) It's a false positive - skip
+
+You:   A
+
+Claude: Applied advisory lock. Committed: fix: address review - advisory
+        lock on concurrent charges
+        
+        INFORMATIONAL:
+        
+        2. app/views/checkout/show.html.erb:23
+           Missing loading state during payment processing.
+
+# Fix the issues
+# ...
+
+# Ship it
+You:   /ship
+```
+
+## Important rules
+
+<Warning>
+- **Read-only by default** - Only modifies files if you choose "Fix it now" on a critical issue
+- **Never commits or pushes** - That's `/ship`'s job
+- **One issue = one question** - Never batches multiple issues into one AskUserQuestion
+- **Respects suppressions** - Won't flag items in the "DO NOT flag" section
+</Warning>
+
+## Tips
+
+<Accordion title="What if the skill flags false positives?">
+Choose option C on the question. The skill won't make changes. For Greptile false positives, choose A to reply explaining why it's wrong - this teaches Greptile over time.
+</Accordion>
+
+<Accordion title="Can I run review on main?">
+No. The skill checks if you're on `main` and stops immediately. Review is for feature branches.
+</Accordion>
+
+<Accordion title="What if there's no diff against main?">
+The skill stops and tells you there's nothing to review.
+</Accordion>
+
+## Related skills
+
+- [`/ship`](/skills/ship) - Automated ship workflow (includes pre-landing review)
+- [`/plan-ceo-review`](/skills/plan-ceo-review) - Founder mode plan review
+- [`/plan-eng-review`](/skills/plan-eng-review) - Engineering manager mode
+- [`/retro`](/skills/retro) - Tracks Greptile batting average over time

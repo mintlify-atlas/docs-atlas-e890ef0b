@@ -1,97 +1,86 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "gstack"
+description: "Claude Code workflow automation toolkit with headless browser, QA testing, code review, and shipping workflows"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #141414 0%, #da7656 100%)',
+  padding: '3rem 2rem',
+  borderRadius: '8px',
+  marginBottom: '2rem'
+}}>
+  <h1 style={{ color: '#ffffff', fontSize: '2.5rem', fontWeight: '700', marginBottom: '1rem' }}>
+    Turn Claude Code into a team of specialists
+  </h1>
+  <p style={{ color: '#F5F3ED', fontSize: '1.25rem', marginBottom: '2rem' }}>
+    Eight opinionated workflow skills for Claude Code. Plan review, code review, one-command shipping, browser automation, QA testing, and engineering retrospectives — all as slash commands.
+  </p>
+</div>
 
-Get your documentation site up and running in minutes.
+## Without gstack
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+- The agent takes your request literally — it never asks if you're building the right thing
+- It will implement exactly what you said, even when the real product is something bigger
+- "Review my PR" gives inconsistent depth every time
+- "Ship this" turns into a long back-and-forth about what to do
+- The agent can write code but can't see your app — it's half blind
+- You still do QA by hand: open browser, click around, check pages, squint at layouts
 
-## Make it yours
+## With gstack
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="/plan-ceo-review" icon="lightbulb" href="/skills/plan-ceo-review">
+    Rethink the problem. Find the 10-star product hiding inside the request.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="/plan-eng-review" icon="diagram-project" href="/skills/plan-eng-review">
+    Lock in architecture, data flow, diagrams, edge cases, and tests.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="/review" icon="magnifying-glass" href="/skills/review">
+    Find the bugs that pass CI but blow up in production. Triages Greptile review comments.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="/ship" icon="rocket" href="/skills/ship">
+    Sync main, run tests, resolve Greptile reviews, push, open PR.
   </Card>
-</Columns>
+  <Card title="/browse" icon="browser" href="/skills/browse">
+    Give the agent eyes. It logs in, clicks through your app, takes screenshots, catches breakage.
+  </Card>
+  <Card title="/qa" icon="check-double" href="/skills/qa">
+    Systematic QA testing. Auto-analyzes your diff, identifies affected pages, and tests them.
+  </Card>
+  <Card title="/setup-browser-cookies" icon="cookie" href="/skills/setup-browser-cookies">
+    Import cookies from your real browser into the headless session.
+  </Card>
+  <Card title="/retro" icon="chart-line" href="/skills/retro">
+    Team-aware retro: deep-dive plus per-person praise and growth opportunities.
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Get Started
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install gstack in minutes for Claude Code
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first workflow and see gstack in action
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand how gstack's workflow modes work
+  </Card>
+  <Card title="Command Reference" icon="terminal" href="/commands/browse/overview">
+    Explore all available commands and options
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Key Features
 
-## Need inspiration?
+- **Persistent headless browser** — Built on Playwright with sub-second latency and session state that carries over between commands
+- **Diff-aware QA testing** — Automatically identifies affected pages from your git diff and tests them
+- **Greptile integration** — Automatic triage of Greptile review comments with intelligent classification
+- **One-command shipping** — Sync, test, push, and create PR in a single workflow
+- **Cookie import** — Import sessions from Chrome, Arc, Brave, Edge, or Comet to test authenticated pages
+- **Team retrospectives** — Analyze commit history with per-contributor metrics and growth opportunities
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+gstack is created by [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https://www.ycombinator.com/). It's the exact Claude Code setup used to ship 10K LOC/day and land 10 PRs a day.
+</Note>

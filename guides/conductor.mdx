@@ -1,0 +1,242 @@
+---
+title: Using gstack with Conductor
+description: Run multiple Claude Code sessions in parallel with isolated workspaces
+---
+
+# Using gstack with Conductor
+
+gstack is powerful with one Claude Code session. It is transformative with ten.
+
+[Conductor](https://conductor.build) runs multiple Claude Code sessions in parallel — each in its own isolated workspace. That means you can have one session running `/qa` on staging, another doing `/review` on a PR, a third implementing a feature, and seven more working on other branches. All at the same time.
+
+## Why Parallel Sessions Matter
+
+With gstack's specialized workflows, you can distribute work across multiple cognitive modes simultaneously:
+
+- One session in `/plan-ceo-review` mode rethinking product direction
+- Another in `/plan-eng-review` mode designing architecture
+- A third running `/review` on an open PR
+- A fourth executing `/ship` to land a ready branch
+- Multiple sessions running `/qa` on different environments
+- Background sessions running `/browse` for research or verification
+
+This is not incremental improvement. This is a different way of building software.
+
+## How It Works
+
+### Isolated Workspaces
+
+Each Conductor workspace gets:
+
+- Its own git working directory
+- Its own isolated browser instance
+- Separate Chromium process, cookies, tabs, and logs
+- Storage in `.gstack/` inside each project root
+
+### No Configuration Needed
+
+`/browse` and `/qa` sessions automatically get isolated browsers:
+
+- No port collisions
+- No shared state
+- No interference between sessions
+- Even across ten parallel workspaces
+
+<Info>
+The browser isolation happens automatically. You don't need to configure anything.
+</Info>
+
+## Example Workflow
+
+<Steps>
+
+<Step title="Start multiple Conductor workspaces">
+  Launch Conductor and create workspaces for different tasks:
+  - Workspace 1: Feature development
+  - Workspace 2: PR review
+  - Workspace 3: QA testing on staging
+  - Workspace 4: Planning next sprint's work
+</Step>
+
+<Step title="Run specialized workflows in each">
+  Each workspace runs the workflow that matches its task:
+  
+  ```bash
+  # Workspace 1
+  /plan-eng-review
+  # [implement the feature]
+  /ship
+  
+  # Workspace 2
+  /review
+  
+  # Workspace 3
+  /setup-browser-cookies staging.myapp.com
+  /qa https://staging.myapp.com
+  
+  # Workspace 4
+  /plan-ceo-review
+  ```
+</Step>
+
+<Step title="Work continues in parallel">
+  All sessions run simultaneously without interfering:
+  - Each has its own browser instance
+  - Each maintains separate cookies and session state
+  - Each writes to its own `.gstack/` directory
+</Step>
+
+</Steps>
+
+## Browser Session Isolation
+
+When you run `/browse` or `/qa` in multiple Conductor workspaces:
+
+**Each workspace gets:**
+- Dedicated Chromium process
+- Separate cookie storage
+- Independent tab state
+- Isolated console logs
+- Own screenshot/report directories
+
+**Stored in:**
+```
+workspace-1/
+  .gstack/
+    browser-cookies/
+    qa-reports/
+    screenshots/
+
+workspace-2/
+  .gstack/
+    browser-cookies/
+    qa-reports/
+    screenshots/
+```
+
+<Warning>
+Each browser instance uses ~200-400MB of memory. Running 10 parallel QA sessions will consume 2-4GB.
+</Warning>
+
+## Real-World Setup
+
+Here's the setup that Garry Tan uses:
+
+**10 parallel agents, each with the right cognitive mode:**
+
+1. Main feature work (founder mode → eng mode → implementation)
+2-3. Two PR reviews running `/review` 
+4-5. Two branches running `/ship` to land completed work
+6-7. QA testing on staging and production with `/qa`
+8. Research or competitive analysis with `/browse`
+9. Planning next week's work with `/plan-ceo-review`
+10. Running `/retro` to analyze team velocity
+
+**All running simultaneously. One person, ten specialists.**
+
+## Getting Started
+
+<Steps>
+
+<Step title="Install Conductor">
+  Visit [conductor.build](https://conductor.build) and follow the installation instructions.
+</Step>
+
+<Step title="Install gstack in each workspace">
+  Either:
+  - Install gstack globally (`~/.claude/skills/gstack`) — works across all workspaces
+  - Or add gstack to your project repo — workspaces inherit it automatically
+  
+  See [Project Install](/guides/project-install) for adding gstack to your repository.
+</Step>
+
+<Step title="Start running workflows in parallel">
+  Launch multiple Conductor workspaces and run different gstack workflows in each one.
+</Step>
+
+</Steps>
+
+## Best Practices
+
+### Workspace Organization
+
+Name your workspaces by task or workflow:
+- `feature-auth-redesign` — implementing the feature
+- `review-pr-142` — reviewing a specific PR
+- `qa-staging` — testing staging environment
+- `planning-q2` — product planning work
+
+### Resource Management
+
+**Memory usage:**
+- Each Claude session: ~500MB-1GB
+- Each browser instance: ~200-400MB
+- 10 parallel sessions: ~7-14GB total
+
+**When to use parallel sessions:**
+- Long-running QA tests (let them run in background)
+- Multiple PR reviews (batch review work)
+- Concurrent feature development (different branches)
+- Planning while implementing (product + engineering)
+
+**When to use sequential:**
+- Simple one-off tasks
+- Low memory environments
+- Learning the workflows
+
+### Workflow Combinations
+
+Effective parallel workflows:
+
+**Product Development:**
+- Workspace 1: `/plan-ceo-review` → product direction
+- Workspace 2: `/plan-eng-review` → technical design
+- Workspace 3: Implementation → `/ship`
+- Workspace 4: `/qa` → verification
+
+**Code Review:**
+- Workspace 1: `/review` on PR #42
+- Workspace 2: `/review` on PR #43
+- Workspace 3: `/review` on PR #44
+- All running in parallel, each producing independent analysis
+
+**Multi-Environment QA:**
+- Workspace 1: `/qa http://localhost:3000` — local
+- Workspace 2: `/qa https://staging.myapp.com` — staging
+- Workspace 3: `/qa https://app.myapp.com --quick` — production smoke test
+- Run all three simultaneously, compare results
+
+<Note>
+Each workspace maintains its own browser cookies. If testing authenticated pages across environments, run `/setup-browser-cookies` in each workspace separately.
+</Note>
+
+## Troubleshooting
+
+### Browser instances not isolated
+
+If you see port conflicts or shared state between workspaces:
+
+1. Verify each workspace is in a different directory
+2. Check that `.gstack/` exists in each project root
+3. Restart the browser sessions: `$B close` in each workspace
+
+### High memory usage
+
+If running too many parallel sessions:
+
+1. Close idle workspaces
+2. Shut down browser instances: `$B close`
+3. Focus on 3-5 active sessions instead of 10
+
+### Cookie conflicts between workspaces
+
+Cookies are workspace-isolated by default. If you need the same authenticated session across workspaces:
+
+1. Run `/setup-browser-cookies` in each workspace
+2. Or copy `.gstack/browser-cookies/` between workspaces (not recommended)
+
+## Learn More
+
+- [Cookie Management](/guides/cookie-management) — Setting up authenticated testing
+- [Project Install](/guides/project-install) — Adding gstack to your repository
+- [Conductor Documentation](https://conductor.build/docs) — Full Conductor guide

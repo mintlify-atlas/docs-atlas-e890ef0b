@@ -1,0 +1,263 @@
+---
+title: Navigation Commands
+description: Commands for navigating between pages
+---
+
+Navigation commands control browser history and page loading.
+
+## goto
+
+Navigate to a URL.
+
+```bash
+browse goto <url>
+```
+
+<ParamField path="url" type="string" required>
+  Full URL including protocol (http:// or https://)
+</ParamField>
+
+### Behavior
+
+- Waits for `domcontentloaded` event (15s timeout)
+- Returns HTTP status code
+- Follows redirects automatically
+
+### Examples
+
+<CodeGroup>
+
+```bash Navigate to URL
+browse goto https://example.com
+```
+
+```txt Output
+Navigated to https://example.com (200)
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Local development
+browse goto http://localhost:3000
+```
+
+```txt Output
+Navigated to http://localhost:3000 (200)
+```
+
+</CodeGroup>
+
+<Note>
+The goto command waits for the DOM to be fully loaded but does not wait for all network requests. Use `wait --networkidle` if you need to wait for all requests to complete.
+</Note>
+
+---
+
+## url
+
+Print the current page URL.
+
+```bash
+browse url
+```
+
+### Examples
+
+<CodeGroup>
+
+```bash Get current URL
+browse url
+```
+
+```txt Output
+https://example.com/path/page.html
+```
+
+</CodeGroup>
+
+<Tip>
+Use `url` after navigation to verify you're on the expected page, especially after form submissions or JavaScript redirects.
+</Tip>
+
+---
+
+## back
+
+Navigate back in browser history.
+
+```bash
+browse back
+```
+
+### Behavior
+
+- Waits for `domcontentloaded` event (15s timeout)
+- Returns new URL after navigation
+- Throws error if no history to go back to
+
+### Examples
+
+<CodeGroup>
+
+```bash Go back
+browse back
+```
+
+```txt Output
+Back → https://example.com/previous-page
+```
+
+</CodeGroup>
+
+---
+
+## forward
+
+Navigate forward in browser history.
+
+```bash
+browse forward
+```
+
+### Behavior
+
+- Waits for `domcontentloaded` event (15s timeout)
+- Returns new URL after navigation
+- Throws error if no forward history
+
+### Examples
+
+<CodeGroup>
+
+```bash Go forward
+browse forward
+```
+
+```txt Output
+Forward → https://example.com/next-page
+```
+
+</CodeGroup>
+
+---
+
+## reload
+
+Reload the current page.
+
+```bash
+browse reload
+```
+
+### Behavior
+
+- Performs a full page reload (bypasses cache)
+- Waits for `domcontentloaded` event (15s timeout)
+- Returns current URL
+
+### Examples
+
+<CodeGroup>
+
+```bash Reload page
+browse reload
+```
+
+```txt Output
+Reloaded https://example.com/page
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Refresh after changes
+browse fill "#query" "new search"
+browse click "#submit"
+browse wait --load
+browse reload  # Refresh to see updated results
+```
+
+</CodeGroup>
+
+---
+
+## Common Patterns
+
+### Multi-Page Navigation
+
+```bash
+# Navigate through multiple pages
+browse goto https://example.com/page1
+browse snapshot -i
+browse click @e5  # Click "Next" button
+browse wait --load
+browse url  # Verify new page
+```
+
+### History Navigation
+
+```bash
+# Go back and forward
+browse goto https://example.com/start
+browse goto https://example.com/middle
+browse goto https://example.com/end
+
+browse back    # → /middle
+browse back    # → /start
+browse forward # → /middle
+```
+
+### Verify Navigation
+
+```bash
+# Navigate and verify
+browse goto https://app.example.com/login
+browse fill "#username" "user@example.com"
+browse fill "#password" "secret"
+browse click "#login-btn"
+
+# Wait for redirect
+browse wait --load
+
+# Verify we're on dashboard
+browse url  # Should show /dashboard
+```
+
+### Handle Slow Pages
+
+```bash
+# For pages with heavy JavaScript
+browse goto https://slow-app.example.com
+browse wait --networkidle  # Wait for all requests
+browse text  # Now safe to extract content
+```
+
+---
+
+## Error Handling
+
+<Warning>
+**Navigation timeouts** (15s default)
+
+If a page takes longer than 15 seconds to load, the command will fail. For slow pages, use `wait --load` or `wait --networkidle` with a custom timeout.
+</Warning>
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `net::ERR_NAME_NOT_RESOLVED` | Invalid domain | Check URL spelling |
+| `net::ERR_CONNECTION_REFUSED` | Server not running | Verify server is up |
+| `Timeout 15000ms exceeded` | Page load too slow | Use `wait --networkidle` |
+| `No history to go back` | Called `back` on first page | Check navigation state first |
+
+---
+
+## Related Commands
+
+- [`wait`](/commands/browse/interaction#wait) - Wait for page load states
+- [`tabs`](/commands/browse/tabs) - Manage multiple pages
+- [`snapshot`](/commands/browse/overview#the-ref-system) - Get page structure

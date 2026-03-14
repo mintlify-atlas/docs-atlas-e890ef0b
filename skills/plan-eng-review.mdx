@@ -1,0 +1,257 @@
+---
+title: "/plan-eng-review"
+description: "Engineering manager mode - lock in architecture, data flow, and test coverage"
+---
+
+## What it does
+
+`/plan-eng-review` is your **engineering manager mode**. Once product direction is right, you need a different kind of intelligence - not more ideation, but technical rigor.
+
+This mode nails architecture, system boundaries, data flow, state transitions, failure modes, edge cases, trust boundaries, and test coverage.
+
+<Note>
+One surprisingly big unlock: **diagrams**. LLMs get way more complete when you force them to draw the system. Diagrams force hidden assumptions into the open.
+</Note>
+
+## When to use it
+
+Use `/plan-eng-review` when you want to:
+- Lock in the technical execution plan after product direction is set
+- Get architecture diagrams, state machines, and data flow maps
+- Ensure edge cases and failure modes are covered
+- Build the technical spine that can carry the product vision
+- Make a plan buildable, not just aspirational
+
+## How it works
+
+The skill starts with **Step 0: Scope Challenge** to verify you're not overbuilding:
+
+1. What existing code already solves each sub-problem?
+2. What's the minimum set of changes to achieve the goal?
+3. Complexity check - if touching >8 files or >2 new classes, that's a smell
+
+Then offers three paths:
+
+### SCOPE REDUCTION
+The plan is overbuilt. Propose a minimal version that achieves the core goal, then review that.
+
+### BIG CHANGE
+Work through interactively, one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
+
+### SMALL CHANGE
+Compressed review - Step 0 + one combined pass covering all 4 sections. Pick the single most important issue per section.
+
+<Warning>
+Once you choose your path, the skill commits to it. Raise scope concerns in Step 0 - after that, it optimizes within your chosen scope.
+</Warning>
+
+## Real example
+
+From the README:
+
+```bash
+You:   /plan-eng-review
+
+Claude: [Architecture diagram, state machine for upload → classify → enrich
+        → draft pipeline, async job boundaries, failure modes, test matrix]
+```
+
+For the smart listing feature from `/plan-ceo-review`, this mode answers:
+- What is the architecture for upload, classification, enrichment, and draft generation?
+- Which steps happen synchronously, and which go to background jobs?
+- Where are the boundaries between components?
+- What happens if upload succeeds but enrichment fails?
+- How do retries work?
+- What gets persisted when?
+
+## What you'll get
+
+A thorough review across four sections:
+
+<Steps>
+  <Step title="1. Architecture Review">
+    - Overall system design and component boundaries
+    - Dependency graph and coupling concerns
+    - Data flow patterns and bottlenecks
+    - Scaling characteristics and single points of failure
+    - Security architecture (auth, data access, API boundaries)
+    - ASCII diagrams for key flows
+    - Production failure scenarios for each integration point
+  </Step>
+  
+  <Step title="2. Code Quality Review">
+    - Code organization and module structure
+    - DRY violations (flagged aggressively)
+    - Error handling patterns and missing edge cases
+    - Technical debt hotspots
+    - Over-engineered or under-engineered areas
+    - Stale ASCII diagrams in touched files
+  </Step>
+  
+  <Step title="3. Test Review">
+    Complete diagram of:
+    - All new UX flows
+    - All new data flows
+    - All new codepaths and branching
+    - All new background jobs / async work
+    - All new integrations / external calls
+    - All new error/rescue paths
+    
+    For each item: what type of test covers it? Does it exist? What are the happy path, failure path, and edge case tests?
+  </Step>
+  
+  <Step title="4. Performance Review">
+    - N+1 queries and database access patterns
+    - Memory usage concerns
+    - Caching opportunities
+    - Slow or high-complexity code paths
+  </Step>
+</Steps>
+
+## Interactive questioning
+
+The skill asks questions one at a time:
+- One issue = one AskUserQuestion call (never batched)
+- 2-3 concrete options with effort, risk, and maintenance burden
+- Recommendation stated FIRST as a directive
+- Mapped to engineering preferences
+
+<Note>
+**Exception:** SMALL CHANGE mode intentionally batches one issue per section into a single question at the end - but each issue still gets its own recommendation + WHY + lettered options.
+</Note>
+
+## Required outputs
+
+Every plan review produces:
+
+### "NOT in scope" section
+Work that was considered and explicitly deferred, with one-line rationale for each.
+
+### "What already exists" section
+Existing code/flows that already partially solve sub-problems - does the plan reuse them or unnecessarily rebuild?
+
+### TODOS.md updates
+For each potential TODO:
+- **What:** One-line description
+- **Why:** The concrete problem it solves
+- **Pros:** What you gain
+- **Cons:** Cost, complexity, risks
+- **Context:** Enough detail for someone 3 months from now
+- **Depends on / blocked by:** Prerequisites
+
+Then options: A) Add to TODOS.md, B) Skip, C) Build it now
+
+### Diagrams
+ASCII diagrams for non-trivial data flow, state machines, processing pipelines.
+
+### Failure modes
+For each new codepath: one realistic production failure scenario and whether:
+1. A test covers that failure
+2. Error handling exists
+3. The user sees a clear error or a silent failure
+
+If any failure mode has no test AND no error handling AND would be silent → **critical gap**.
+
+### Completion summary
+```
+- Step 0: Scope Challenge (user chose: ___)
+- Architecture Review: ___ issues found
+- Code Quality Review: ___ issues found
+- Test Review: diagram produced, ___ gaps identified
+- Performance Review: ___ issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: ___ items proposed to user
+- Failure modes: ___ critical gaps flagged
+```
+
+## Engineering preferences
+
+The skill uses these preferences to guide recommendations:
+- DRY is important - flag repetition aggressively
+- Well-tested code is non-negotiable
+- "Engineered enough" - not fragile/hacky, not over-abstracted
+- Handle more edge cases, not fewer
+- Explicit over clever
+- Minimal diff - fewest new abstractions and files touched
+
+## ASCII diagrams
+
+The skill values diagrams highly for:
+- Data flow
+- State machines
+- Dependency graphs
+- Processing pipelines
+- Decision trees
+
+For complex designs, diagrams go directly in code comments:
+- **Models** - data relationships, state transitions
+- **Controllers** - request flow
+- **Concerns** - mixin behavior
+- **Services** - processing pipelines
+- **Tests** - non-obvious setup
+
+<Warning>
+**Diagram maintenance is part of the change.** Stale diagrams are worse than no diagrams - they actively mislead.
+</Warning>
+
+## Example workflow
+
+```bash
+# After /plan-ceo-review locks in product direction
+You:   /plan-eng-review
+
+Claude: Step 0: Scope Challenge
+        1. What existing code already solves sub-problems?
+        2. Minimum set of changes?
+        3. Complexity check: 12 files, 3 new services - smell?
+        
+        Choose: SCOPE REDUCTION / BIG CHANGE / SMALL CHANGE
+
+You:   BIG CHANGE
+
+Claude: Architecture Review:
+        
+        Issue 1: Upload → classify → enrich pipeline
+        We recommend B: Split sync upload from async enrichment.
+        Here's why: Sync upload gives immediate feedback (minimal diff),
+        async enrichment prevents timeout on slow APIs.
+        
+        A) Keep fully synchronous - simpler but risky timeouts
+        B) Split sync upload from async enrichment (recommended)
+        C) Make entire flow async - better scaling but worse UX
+
+You:   B
+
+Claude: [Continues through all architecture issues, then code quality,
+        then tests, then performance]
+```
+
+## Tips
+
+<Accordion title="When to choose SCOPE REDUCTION">
+- The plan touches >15 files
+- Multiple new abstractions for a small problem
+- You're rebuilding something that already exists
+- The plan solves a proxy problem, not the real one
+</Accordion>
+
+<Accordion title="When to choose BIG CHANGE">
+- New features with meaningful complexity
+- Plans where architecture matters
+- When you want thorough section-by-section review
+- Greenfield work
+</Accordion>
+
+<Accordion title="When to choose SMALL CHANGE">
+- Bug fixes
+- Small refactors
+- Tweaks to existing features
+- When you want fast turnaround
+</Accordion>
+
+## Related skills
+
+- [`/plan-ceo-review`](/skills/plan-ceo-review) - Founder mode for rethinking the problem
+- [`/review`](/skills/review) - Pre-landing structural review
+- [`/ship`](/skills/ship) - Automated ship workflow

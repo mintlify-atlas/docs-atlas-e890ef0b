@@ -1,0 +1,414 @@
+---
+title: Adding gstack to Your Project
+description: Install gstack in your repository so teammates get it automatically
+---
+
+# Adding gstack to Your Project
+
+By default, gstack installs to `~/.claude/skills/gstack/` on your machine. But you can also install it directly into your project repository so that everyone on your team gets it automatically when they clone the repo.
+
+## Why Add gstack to Your Project
+
+**Team consistency:**
+- Everyone uses the same workflow skills
+- No "it works on my machine" for slash commands
+- New teammates get gstack on `git clone`
+
+**Version control:**
+- Lock your project to a specific gstack version
+- Test upgrades on a branch before rolling out
+- Rollback if a new version breaks your workflow
+
+**Project-specific configuration:**
+- Customize workflows for your codebase
+- Add project-specific CLAUDE.md instructions
+- Store QA baselines and retro history in the repo
+
+<Info>
+Project installs and global installs can coexist. If both exist, Claude Code uses the project-local version.
+</Info>
+
+## Installation Steps
+
+<Steps>
+
+<Step title="Ensure global gstack is installed">
+  First, install gstack globally on your machine:
+  
+  ```bash
+  git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+  cd ~/.claude/skills/gstack
+  ./setup
+  ```
+  
+  This gives you a working copy to clone into your project.
+</Step>
+
+<Step title="Copy gstack to your project">
+  From your project root:
+  
+  ```bash
+  cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+  rm -rf .claude/skills/gstack/.git
+  cd .claude/skills/gstack
+  ./setup
+  ```
+  
+  This:
+  - Copies all skill files to `.claude/skills/gstack/`
+  - Removes the `.git` directory (real files, not a submodule)
+  - Runs setup to build the binary and create skill symlinks
+</Step>
+
+<Step title="Update your project's CLAUDE.md">
+  Add a gstack section to your project's `CLAUDE.md`:
+  
+  ```markdown
+  # gstack
+  
+  This project uses gstack workflow skills. Available commands:
+  
+  - `/plan-ceo-review` — Founder/CEO mode: rethink the problem, find the 10-star product
+  - `/plan-eng-review` — Eng manager mode: architecture, diagrams, edge cases, tests
+  - `/review` — Paranoid staff engineer: find bugs that pass CI but break production
+  - `/ship` — Release engineer: sync main, run tests, push, open PR
+  - `/browse` — QA engineer: headless browser for testing and verification
+  - `/qa` — QA lead: systematic testing with diff-aware, full, quick, and regression modes
+  - `/setup-browser-cookies` — Session manager: import browser cookies for authenticated testing
+  - `/retro` — Engineering manager: team-aware retrospective with metrics and feedback
+  
+  **Important:** Use the `/browse` skill from gstack for all web browsing. 
+  Never use `mcp__claude-in-chrome__*` tools.
+  
+  **If gstack skills aren't working:** Run `cd .claude/skills/gstack && ./setup` to build 
+  the binary and register skills.
+  ```
+</Step>
+
+<Step title="Commit to your repository">
+  ```bash
+  git add .claude/skills/gstack
+  git add CLAUDE.md
+  git commit -m "Add gstack workflow skills to project"
+  git push
+  ```
+</Step>
+
+</Steps>
+
+## What Gets Committed
+
+**Included in git:**
+- All skill files (`.md`, `.md.tmpl`)
+- Source code (`browse/src/`, `scripts/`, etc.)
+- Setup scripts
+- Tests
+- Documentation
+
+**Gitignored (not committed):**
+- `browse/dist/browse` — the compiled binary (~58MB)
+- `node_modules/` — npm packages
+- `.gstack/` — runtime data (cookies, QA reports, retro history)
+
+<Note>
+Teammates will need to run `./setup` once after cloning to build the binary. The setup script handles this automatically, or `/browse` will prompt to build on first use.
+</Note>
+
+## Teammate Setup
+
+When a teammate clones your repository:
+
+<Steps>
+
+<Step title="Clone the repository">
+  ```bash
+  git clone https://github.com/yourteam/yourproject.git
+  cd yourproject
+  ```
+  
+  They get all gstack skill files automatically.
+</Step>
+
+<Step title="Build the binary">
+  ```bash
+  cd .claude/skills/gstack
+  ./setup
+  ```
+  
+  This:
+  - Installs Bun if needed (or prompts to install)
+  - Runs `bun install`
+  - Compiles the browse binary
+  - Creates skill symlinks
+  
+  Takes ~10 seconds.
+</Step>
+
+<Step title="Start using gstack">
+  All slash commands are now available in Claude Code:
+  
+  ```bash
+  /browse https://example.com
+  /qa
+  /review
+  /ship
+  ```
+</Step>
+
+</Steps>
+
+<Warning>
+**Requirement:** Teammates need [Bun](https://bun.sh/) v1.0+ installed. If not installed, the setup script will show installation instructions.
+</Warning>
+
+## Upgrading Project gstack
+
+To update your project's gstack to the latest version:
+
+<Steps>
+
+<Step title="Update global gstack first">
+  ```bash
+  cd ~/.claude/skills/gstack
+  git fetch origin
+  git reset --hard origin/main
+  ./setup
+  ```
+</Step>
+
+<Step title="Copy updated version to project">
+  From your project root:
+  
+  ```bash
+  # Remove old symlinks
+  for s in browse plan-ceo-review plan-eng-review review ship retro qa setup-browser-cookies; do
+    rm -f .claude/skills/$s
+  done
+  
+  # Remove old gstack directory
+  rm -rf .claude/skills/gstack
+  
+  # Copy fresh version
+  cp -Rf ~/.claude/skills/gstack .claude/skills/gstack
+  rm -rf .claude/skills/gstack/.git
+  
+  # Rebuild
+  cd .claude/skills/gstack
+  ./setup
+  ```
+</Step>
+
+<Step title="Test the upgrade">
+  Verify all skills work:
+  
+  ```bash
+  /browse --help
+  /qa --help
+  ```
+  
+  Test critical workflows before committing.
+</Step>
+
+<Step title="Commit the upgrade">
+  ```bash
+  git add .claude/skills/gstack
+  git commit -m "Upgrade gstack to v{version}"
+  git push
+  ```
+</Step>
+
+</Steps>
+
+## Version Pinning Strategy
+
+### Option 1: Stay on Latest (Recommended)
+
+Update frequently to get new features and fixes:
+
+```bash
+# Every 1-2 weeks
+cd ~/.claude/skills/gstack && git pull && ./setup
+# Then copy to project and commit
+```
+
+**Pros:**
+- Latest features and improvements
+- Bug fixes automatically
+- Aligns with gstack development pace
+
+**Cons:**
+- Potential breaking changes
+- Need to test before rolling out to team
+
+### Option 2: Pin to Specific Version
+
+Lock to a git tag or commit:
+
+```bash
+# In project's .claude/skills/gstack
+cd .claude/skills/gstack
+git fetch --tags
+git checkout v1.0.0  # or specific commit hash
+./setup
+```
+
+**Pros:**
+- Stable, predictable behavior
+- Test upgrades on a branch first
+- Easy rollback if issues arise
+
+**Cons:**
+- Miss new features
+- Manual upgrade process
+- May fall behind on bug fixes
+
+<Info>
+gstack doesn't have formal releases yet (as of March 2026). Use git commit hashes or dates for pinning.
+</Info>
+
+## Project-Local Customization
+
+You can customize gstack skills for your project:
+
+### Modify Skill Files
+
+Edit `.claude/skills/gstack/*/SKILL.md.tmpl` files to add project-specific instructions:
+
+```markdown
+# Review Skill (Customized for MyApp)
+
+## Project-Specific Checks
+
+- Always verify SQL queries use indexed columns
+- Check that API responses include `request_id` for tracing
+- Ensure all mutation endpoints have rate limiting
+
+[...rest of skill...]
+```
+
+Then regenerate:
+
+```bash
+cd .claude/skills/gstack
+bun run gen:skill-docs
+```
+
+### Add Project CLAUDE.md Instructions
+
+In your project's `CLAUDE.md`, add context that enhances gstack workflows:
+
+```markdown
+# gstack + MyApp Integration
+
+When running `/qa`:
+- Test against local dev server on http://localhost:3000
+- Staging environment: https://staging.myapp.com
+- Production: https://app.myapp.com (read-only, use --quick mode)
+
+When running `/ship`:
+- Always update CHANGELOG.md with user-facing changes
+- Bump version in package.json following semver
+- Add "Fixes #123" to PR body if closing an issue
+
+When running `/review`:
+- Our payment service (app/services/payment_service.rb) requires extra scrutiny
+- All database migrations need `disable_ddl_transaction!` if changing large tables
+```
+
+## Troubleshooting
+
+### Skills not showing up
+
+If slash commands don't work after cloning:
+
+1. Verify `.claude/skills/gstack/` exists
+2. Run setup: `cd .claude/skills/gstack && ./setup`
+3. Restart Claude Code
+
+### Binary not found or outdated
+
+If `/browse` fails with "binary not found":
+
+```bash
+cd .claude/skills/gstack
+bun install
+bun run build
+```
+
+This rebuilds the browse binary.
+
+### Conflicts with global install
+
+If you have both global (`~/.claude/skills/gstack`) and project (`.claude/skills/gstack`) installs:
+
+- Claude Code prioritizes the project-local version
+- To force global: temporarily rename `.claude/skills/gstack`
+- To force project: ensure `./setup` has been run in project directory
+
+### Teammate has wrong Bun version
+
+gstack requires Bun v1.0 or higher:
+
+```bash
+bun --version  # Should show 1.0.0 or higher
+
+# Upgrade if needed
+curl -fsSL https://bun.sh/install | bash
+```
+
+## Best Practices
+
+<Steps>
+
+<Step title="Test upgrades on a branch">
+  ```bash
+  git checkout -b upgrade-gstack
+  # [update gstack]
+  # [test all workflows]
+  git commit -m "Upgrade gstack"
+  # Open PR, test in CI, merge when safe
+  ```
+</Step>
+
+<Step title="Document project-specific workflows">
+  Add team conventions to `CLAUDE.md`:
+  - Which environments to test
+  - Required PR checklist items
+  - Versioning/changelog rules
+  - Greptile integration setup
+</Step>
+
+<Step title="Keep .gitignore updated">
+  Ensure these are gitignored:
+  
+  ```gitignore
+  # gstack runtime
+  .gstack/
+  .claude/skills/gstack/browse/dist/
+  .claude/skills/gstack/node_modules/
+  ```
+</Step>
+
+<Step title="Share setup instructions">
+  Add to your README:
+  
+  ```markdown
+  ## gstack Setup
+  
+  After cloning, build gstack skills:
+  
+  ```bash
+  cd .claude/skills/gstack
+  ./setup
+  ```
+  
+  Requires [Bun](https://bun.sh/) v1.0+.
+</Step>
+
+</Steps>
+
+## Learn More
+
+- [Conductor Integration](/guides/conductor) — Running multiple Claude sessions in parallel
+- [Cookie Management](/guides/cookie-management) — Setting up authenticated testing
+- [gstack Repository](https://github.com/garrytan/gstack) — Source code and updates

@@ -1,0 +1,373 @@
+---
+title: Reading Commands
+description: Extract content and structure from web pages
+---
+
+Reading commands extract text, HTML, links, forms, and accessibility information from pages without modifying them.
+
+## text
+
+Extract cleaned page text with scripts, styles, and SVGs removed.
+
+```bash
+browse text
+```
+
+### Behavior
+
+- Clones the body element
+- Removes `<script>`, `<style>`, `<noscript>`, `<svg>` tags
+- Returns `innerText` with cleaned whitespace
+- One line per text node
+
+### Examples
+
+<CodeGroup>
+
+```bash Get page text
+browse goto https://example.com
+browse text
+```
+
+```txt Output
+Example Domain
+This domain is for use in illustrative examples in documents.
+More information...
+```
+
+</CodeGroup>
+
+<Tip>
+Use `text` for content extraction and readability analysis. For structure-aware extraction, use `snapshot` or `html`.
+</Tip>
+
+---
+
+## html
+
+Get HTML content — full page or specific element.
+
+```bash
+browse html [selector]
+```
+
+<ParamField path="selector" type="string">
+  CSS selector or `@ref` from snapshot. If omitted, returns full page HTML.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```bash Full page HTML
+browse html
+```
+
+```html Output
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Example Domain</title>
+  ...
+</head>
+<body>
+  <div>
+    <h1>Example Domain</h1>
+    <p>This domain is for use in illustrative examples...</p>
+  </div>
+</body>
+</html>
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Element innerHTML
+browse html "#content"
+```
+
+```html Output
+<h1>Example Domain</h1>
+<p>This domain is for use in illustrative examples in documents.</p>
+<p><a href="https://www.iana.org/domains/example">More information...</a></p>
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Using refs
+browse snapshot -i
+# @e1 [button] "Submit"
+browse html @e1
+```
+
+```html Output
+Submit
+```
+
+</CodeGroup>
+
+<Warning>
+If the selector matches no elements, the command will throw an error. Use `snapshot` first to verify element existence.
+</Warning>
+
+---
+
+## links
+
+Extract all links as `text → href` pairs.
+
+```bash
+browse links
+```
+
+### Behavior
+
+- Finds all `<a>` elements with `href` attribute
+- Returns text content (truncated to 120 chars) and full href
+- Filters out links with empty text or href
+- Uses resolved absolute URLs
+
+### Examples
+
+<CodeGroup>
+
+```bash Get all links
+browse goto https://example.com
+browse links
+```
+
+```txt Output
+More information... → https://www.iana.org/domains/example
+IANA → https://www.iana.org/
+Domains → https://www.iana.org/domains
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```bash Extract and filter links
+browse goto https://news.example.com
+browse links | grep "article"
+```
+
+```txt Output
+Breaking News Article → https://news.example.com/article/123
+Featured Story → https://news.example.com/article/456
+```
+
+</CodeGroup>
+
+---
+
+## forms
+
+Discover form fields and structure as JSON.
+
+```bash
+browse forms
+```
+
+### Output Structure
+
+```json
+[
+  {
+    "index": 0,
+    "action": "/login",
+    "method": "post",
+    "id": "login-form",
+    "fields": [
+      {
+        "tag": "input",
+        "type": "email",
+        "name": "email",
+        "id": "email",
+        "placeholder": "Enter email",
+        "required": true,
+        "value": ""
+      },
+      {
+        "tag": "input",
+        "type": "password",
+        "name": "password",
+        "id": "password",
+        "required": true,
+        "value": "[redacted]"
+      },
+      {
+        "tag": "select",
+        "name": "role",
+        "id": "role",
+        "options": [
+          { "value": "user", "text": "User" },
+          { "value": "admin", "text": "Administrator" }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### Examples
+
+<CodeGroup>
+
+```bash Discover forms
+browse goto https://example.com/login
+browse forms
+```
+
+```json Output
+[
+  {
+    "index": 0,
+    "action": "/api/login",
+    "method": "post",
+    "id": "login-form",
+    "fields": [
+      {
+        "tag": "input",
+        "type": "email",
+        "name": "email",
+        "required": true
+      },
+      {
+        "tag": "input",
+        "type": "password",
+        "name": "password",
+        "required": true
+      }
+    ]
+  }
+]
+```
+
+</CodeGroup>
+
+<Note>
+Password field values are automatically redacted as `[redacted]` for security.
+</Note>
+
+---
+
+## accessibility
+
+Get the full ARIA accessibility tree (raw output from Playwright).
+
+```bash
+browse accessibility
+```
+
+### Behavior
+
+- Returns Playwright's `ariaSnapshot()` output
+- YAML-like format with roles, names, and properties
+- Includes all accessible elements (not filtered)
+- Use `snapshot -i` for interactive elements with refs
+
+### Examples
+
+<CodeGroup>
+
+```bash Get ARIA tree
+browse goto https://example.com
+browse accessibility
+```
+
+```yaml Output
+- heading "Example Domain" [level=1]
+- paragraph: This domain is for use in illustrative examples in documents.
+- paragraph:
+  - link "More information...":
+    - /url: https://www.iana.org/domains/example
+```
+
+</CodeGroup>
+
+<Tip>
+For actionable element selection, use `snapshot -i` instead of `accessibility`. It assigns `@e` refs for easy interaction.
+</Tip>
+
+---
+
+## Common Patterns
+
+### Content Extraction
+
+```bash
+# Get clean article text
+browse goto https://blog.example.com/post/123
+browse text > article.txt
+
+# Extract specific section
+browse html ".post-content" > content.html
+```
+
+### Link Discovery
+
+```bash
+# Find all external links
+browse goto https://example.com
+browse links | grep -v "example.com"
+
+# Extract navigation links
+browse links | grep "nav"
+```
+
+### Form Analysis
+
+```bash
+# Discover form structure before automation
+browse goto https://app.example.com/signup
+browse forms > forms.json
+
+# Identify required fields
+browse forms | jq '.[] | .fields[] | select(.required == true)'
+```
+
+### Accessibility Audit
+
+```bash
+# Get full accessibility tree
+browse goto https://example.com
+browse accessibility > aria-tree.txt
+
+# Check interactive elements
+browse snapshot -i
+```
+
+### Content Monitoring
+
+```bash
+# Extract and compare content over time
+browse goto https://example.com
+browse text > snapshot-$(date +%Y%m%d).txt
+
+# Or use built-in diff
+browse diff https://example.com/v1 https://example.com/v2
+```
+
+---
+
+## Performance Notes
+
+| Command | Speed | Use Case |
+|---------|-------|----------|
+| `text` | Fast | Reading, content extraction |
+| `html` | Fast | Structure analysis, scraping |
+| `links` | Fast | Link discovery, navigation |
+| `forms` | Medium | Form automation planning |
+| `accessibility` | Medium | Accessibility audits, full tree |
+
+---
+
+## Related Commands
+
+- [`snapshot`](/commands/browse/overview#the-ref-system) - Interactive elements with refs
+- [`js`](/commands/browse/inspection#js) - Custom JavaScript extraction
+- [`attrs`](/commands/browse/inspection#attrs) - Element attributes
+- [`diff`](/commands/browse/visual#diff) - Compare page content

@@ -1,0 +1,474 @@
+---
+title: Architecture
+description: Technical architecture of gstack - why it's built this way
+---
+
+<Note>
+This page explains **why** gstack is built the way it is. For setup and commands, see [Installation](/installation). For contributing, see the [Contributing Guide](/guides/contributing).
+</Note>
+
+## The Core Idea
+
+gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. **The browser is the hard part — everything else is Markdown.**
+
+The key insight: an AI agent interacting with a browser needs **sub-second latency** and **persistent state**. If every command cold-starts a browser, you're waiting 3-5 seconds per tool call. If the browser dies between commands, you lose cookies, tabs, and login sessions.
+
+**Solution:** Run a long-lived Chromium daemon that the CLI talks to over localhost HTTP.
+
+## Why Bun?
+
+Node.js would work. Bun is better here for four reasons:
+
+### 1. Compiled Binaries
+
+`bun build --compile` produces a single **~58MB executable**. No `node_modules` at runtime, no `npx`, no PATH configuration. The binary just runs.
+
+This matters because gstack installs into `~/.claude/skills/` where users don't expect to manage a Node.js project.
+
+### 2. Native SQLite
+
+Cookie decryption reads Chromium's SQLite cookie database directly. Bun has `new Database()` built in — no `better-sqlite3`, no native addon compilation, no gyp.
+
+One less thing that breaks on different machines.
+
+### 3. Native TypeScript
+
+The server runs as `bun run server.ts` during development. No compilation step, no `ts-node`, no source maps to debug.
+
+The compiled binary is for deployment; source files are for development.
+
+### 4. Built-in HTTP Server
+
+`Bun.serve()` is fast, simple, and doesn't need Express or Fastify. The server handles ~10 routes total. A framework would be overhead.
+
+<Info>
+The bottleneck is always Chromium, not the CLI or server. Bun's startup speed (~1ms for the compiled binary vs ~100ms for Node) is nice but not the reason we chose it. **The compiled binary and native SQLite are.**
+</Info>
+
+## The Daemon Model
+
+### Why Not Start a Browser Per Command?
+
+Playwright can launch Chromium in ~2-3 seconds. For a single screenshot, that's fine. For a QA session with 20+ commands, it's **40+ seconds of browser startup overhead**.
+
+Worse: you lose all state between commands. Cookies, localStorage, login sessions, open tabs — all gone.
+
+### The Daemon Model Means:
+
+- **Persistent state** — Log in once, stay logged in. Open a tab, it stays open. localStorage persists across commands.
+- **Sub-second commands** — After the first call, every command is just an HTTP POST. ~100-200ms round-trip including Chromium's work.
+- **Automatic lifecycle** — The server auto-starts on first use, auto-shuts down after 30 minutes idle. No process management needed.
+
+### State File
+
+The server writes `.gstack/browse.json` (atomic write via tmp + rename, mode 0o600):
+
+```json
+{
+  "pid": 12345,
+  "port": 34567,
+  "token": "uuid-v4",
+  "startedAt": "2026-03-14T10:30:00Z",
+  "binaryVersion": "abc123"
+}
+```
+
+The CLI reads this file to find the server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server.
+
+### Port Selection
+
+**Random port between 10000-60000** (retry up to 5 on collision).
+
+This means **10 Conductor workspaces can each run their own browse daemon** with zero configuration and zero port conflicts.
+
+The old approach (scanning 9400-9409) broke constantly in multi-workspace setups. Random ports solved this entirely.
+
+### Version Auto-Restart
+
+The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI invocation:
+
+1. Read binary's `.version` file
+2. Compare to running server's `binaryVersion` (from state file)
+3. If mismatch: kill old server, start new one
+
+This prevents the "stale binary" class of bugs entirely — **rebuild the binary, next command picks it up automatically.**
+
+## Security Model
+
+### Localhost Only
+
+The HTTP server binds to `localhost`, not `0.0.0.0`. It's not reachable from the network.
+
+### Bearer Token Auth
+
+Every server session generates a random UUID token, written to the state file with mode `0o600` (owner-only read). Every HTTP request must include:
+
+```
+Authorization: Bearer <token>
+```
+
+If the token doesn't match, the server returns 401.
+
+**Exception:** The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands.
+
+This prevents other processes on the same machine from talking to your browse server.
+
+### Cookie Security
+
+Cookies are the most sensitive data gstack handles. The design:
+
+1. **Keychain access requires user approval** — First cookie import per browser triggers a macOS Keychain dialog. The user must click "Allow" or "Always Allow." gstack never silently accesses credentials.
+
+2. **Decryption happens in-process** — Cookie values are decrypted in memory (PBKDF2 + AES-128-CBC), loaded into the Playwright context, and never written to disk in plaintext. The cookie picker UI never displays cookie values — only domain names and counts.
+
+3. **Database is read-only** — gstack copies the Chromium cookie DB to a temp file (to avoid SQLite lock conflicts with the running browser) and opens it read-only. It never modifies your real browser's cookie database.
+
+4. **Key caching is per-session** — The Keychain password + derived AES key are cached in memory for the server's lifetime. When the server shuts down (idle timeout or explicit stop), the cache is gone.
+
+5. **No cookie values in logs** — Console, network, and dialog logs never contain cookie values. The `cookies` command outputs cookie metadata (domain, name, expiry) but values are truncated.
+
+### Shell Injection Prevention
+
+The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input.
+
+Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
+
+## The Ref System
+
+Refs (`@e1`, `@e2`, `@c1`) are how the agent addresses page elements without writing CSS selectors or XPath.
+
+### How It Works
+
+```
+1. Agent runs: $B snapshot -i
+2. Server calls Playwright's page.accessibility.snapshot()
+3. Parser walks the ARIA tree, assigns sequential refs: @e1, @e2, @e3...
+4. For each ref, builds a Playwright Locator: getByRole(role, { name }).nth(index)
+5. Stores Map<string, Locator> on the BrowserManager instance
+6. Returns the annotated tree as plain text
+
+Later:
+7. Agent runs: $B click @e3
+8. Server resolves @e3 → Locator → locator.click()
+```
+
+### Why Locators, Not DOM Mutation?
+
+The obvious approach is to inject `data-ref="@e1"` attributes into the DOM. This breaks on:
+
+- **CSP (Content Security Policy)** — Many production sites block DOM modification from scripts
+- **React/Vue/Svelte hydration** — Framework reconciliation can strip injected attributes
+- **Shadow DOM** — Can't reach inside shadow roots from the outside
+
+**Playwright Locators are external to the DOM.** They use the accessibility tree (which Chromium maintains internally) and `getByRole()` queries.
+
+No DOM mutation, no CSP issues, no framework conflicts.
+
+### Ref Lifecycle
+
+Refs are **cleared on navigation** (the `framenavigated` event on the main frame). This is correct — after navigation, all locators are stale.
+
+The agent must run `snapshot` again to get fresh refs. This is by design: **stale refs should fail loudly, not click the wrong element.**
+
+### Cursor-Interactive Refs (`@c`)
+
+The `-C` flag finds elements that are **clickable but not in the ARIA tree** — things styled with `cursor: pointer`, elements with `onclick` attributes, or custom `tabindex`.
+
+These get `@c1`, `@c2` refs in a separate namespace. This catches custom components that frameworks render as `<div>` but are actually buttons.
+
+## Logging Architecture
+
+Three ring buffers (50,000 entries each, O(1) push):
+
+```
+Browser events → CircularBuffer (in-memory) → Async flush to .gstack/*.log
+```
+
+Console messages, network requests, and dialog events each have their own buffer. Flushing happens **every 1 second** — the server appends only new entries since the last flush.
+
+This means:
+
+- HTTP request handling is never blocked by disk I/O
+- Logs survive server crashes (up to 1 second of data loss)
+- Memory is bounded (50K entries × 3 buffers)
+- Disk files are append-only, readable by external tools
+
+The `console`, `network`, and `dialog` commands **read from the in-memory buffers**, not disk. Disk files are for post-mortem debugging.
+
+## SKILL.md Template System
+
+### The Problem
+
+SKILL.md files tell Claude how to use the browse commands. If the docs list a flag that doesn't exist, or miss a command that was added, the agent hits errors.
+
+**Hand-maintained docs always drift from code.**
+
+### The Solution
+
+```
+SKILL.md.tmpl          (human-written prose + placeholders)
+     ↓
+gen-skill-docs.ts      (reads source code metadata)
+     ↓
+SKILL.md               (committed, auto-generated sections)
+```
+
+Templates contain the workflows, tips, and examples that require human judgment. The `{{COMMAND_REFERENCE}}` and `{{SNAPSHOT_FLAGS}}` placeholders are filled from:
+
+- `browse/src/commands.ts` → Command registry (single source of truth)
+- `browse/src/snapshot.ts` → `SNAPSHOT_FLAGS` metadata array
+
+This is **structurally sound** — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
+
+### Why Committed, Not Generated at Runtime?
+
+Three reasons:
+
+1. **Claude reads SKILL.md at skill load time** — There's no build step when a user invokes `/browse`. The file must already exist and be correct.
+
+2. **CI can validate freshness** — `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
+
+3. **Git blame works** — You can see when a command was added and in which commit.
+
+### Source of Truth: `commands.ts`
+
+```typescript
+// browse/src/commands.ts
+
+export const READ_COMMANDS = new Set([
+  'text', 'html', 'links', 'forms', 'accessibility',
+  'console', 'network', 'cookies', 'storage', 'perf',
+]);
+
+export const WRITE_COMMANDS = new Set([
+  'goto', 'click', 'fill', 'select', 'hover', 'type', 'press',
+  'viewport', 'cookie', 'cookie-import', 'cookie-import-browser',
+]);
+
+export const META_COMMANDS = new Set([
+  'tabs', 'tab', 'newtab', 'closetab',
+  'status', 'stop', 'restart',
+  'screenshot', 'pdf', 'responsive',
+  'snapshot', 'chain', 'diff',
+]);
+
+export const COMMAND_DESCRIPTIONS: Record<string, {
+  category: string;
+  description: string;
+  usage?: string;
+}> = {
+  'goto':    { category: 'Navigation', description: 'Navigate to URL', usage: 'goto <url>' },
+  'click':   { category: 'Interaction', description: 'Click element', usage: 'click <sel>' },
+  'snapshot':{ category: 'Snapshot', description: 'Accessibility tree with @e refs...', usage: 'snapshot [flags]' },
+  // ... 40+ more
+};
+```
+
+**Load-time validation** ensures `COMMAND_DESCRIPTIONS` covers exactly the command sets — no missing entries, no unknown commands.
+
+### Source of Truth: `snapshot.ts`
+
+```typescript
+// browse/src/snapshot.ts
+
+export const SNAPSHOT_FLAGS: Array<{
+  short: string;
+  long: string;
+  description: string;
+  takesValue?: boolean;
+  valueHint?: string;
+  optionKey: keyof SnapshotOptions;
+}> = [
+  { short: '-i', long: '--interactive', description: 'Interactive elements only...', optionKey: 'interactive' },
+  { short: '-c', long: '--compact', description: 'Compact (no empty structural nodes)', optionKey: 'compact' },
+  { short: '-d', long: '--depth', description: 'Limit tree depth...', takesValue: true, valueHint: '<N>', optionKey: 'depth' },
+  // ... 8 flags total
+];
+```
+
+The CLI parsing logic (`parseSnapshotArgs`) is **driven by this metadata**. If you add a flag to the array, the CLI automatically supports it.
+
+## Test Tiers
+
+| Tier | What | Cost | Speed |
+|------|------|------|-------|
+| **Tier 1 — Static validation** | Parse every `$B` command in SKILL.md, validate against registry | Free | &lt;2s |
+| **Tier 2 — E2E via Agent SDK** | Spawn real Claude session, run `/qa`, check for errors | ~$0.50 | ~60s |
+| **Tier 3 — LLM-as-judge** | Haiku scores docs on clarity/completeness/actionability | ~$0.03 | ~10s |
+
+**Tier 1 runs on every `bun test`.** Tier 2 and 3 are gated behind env vars.
+
+The idea: catch 95% of issues for free, use LLMs only for the judgment calls.
+
+### Tier 1 Example: Static Validation
+
+```typescript
+// test/skill-validation.test.ts
+
+import { parseSkillCommands } from './helpers/skill-parser';
+import { ALL_COMMANDS } from '../browse/src/commands';
+
+test('SKILL.md only references valid commands', () => {
+  const skillCommands = parseSkillCommands('browse/SKILL.md');
+  for (const cmd of skillCommands) {
+    expect(ALL_COMMANDS.has(cmd)).toBe(true);
+  }
+});
+```
+
+If the docs reference a command that doesn't exist, the test fails.
+
+## Command Dispatch
+
+Commands are categorized by side effects:
+
+- **READ** (text, html, console, cookies, ...) — No mutations. Safe to retry. Returns page state.
+- **WRITE** (goto, click, fill, press, ...) — Mutates page state. Not idempotent.
+- **META** (snapshot, screenshot, tabs, chain, ...) — Server-level operations.
+
+The server uses this for dispatch:
+
+```typescript
+// browse/src/server.ts
+
+if (READ_COMMANDS.has(command)) {
+  result = await handleReadCommand(command, args, browserManager);
+} else if (WRITE_COMMANDS.has(command)) {
+  result = await handleWriteCommand(command, args, browserManager);
+} else if (META_COMMANDS.has(command)) {
+  result = await handleMetaCommand(command, args, browserManager, shutdown);
+}
+```
+
+The `help` command returns all three sets so agents can self-discover available commands.
+
+## Error Philosophy
+
+Errors are for AI agents, not humans. Every error message must be **actionable**:
+
+**Bad:**
+```
+TimeoutError: locator.click: Timeout 30000ms exceeded
+  at Object.click (...)
+  at BrowserManager.resolveRef (...)
+  [stack trace continues for 20 lines]
+```
+
+**Good:**
+```
+Element not found or not interactable within timeout.
+Check your selector or run 'snapshot' for fresh refs.
+```
+
+Playwright's native errors are rewritten through `wrapError()` to strip internal stack traces and add guidance.
+
+The agent should be able to read the error and know what to do next without human intervention.
+
+### Crash Recovery
+
+The server **doesn't try to self-heal**. If Chromium crashes (`browser.on('disconnected')`), the server exits immediately:
+
+```typescript
+browser.on('disconnected', () => {
+  console.error('[browse] FATAL: Chromium process crashed or was killed. Server exiting.');
+  console.error('[browse] Console/network logs flushed to .gstack/browse-*.log');
+  process.exit(1);
+});
+```
+
+The CLI detects the dead server on the next command and auto-restarts.
+
+**Why not reconnect?** Trying to reconnect to a half-dead browser process is complex and unreliable. Clean exit + auto-restart is simpler and more predictable.
+
+## What's Intentionally Not Here
+
+- **No WebSocket streaming** — HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.
+- **No MCP protocol** — MCP adds JSON schema overhead per request and requires a persistent connection. Plain HTTP + plain text output is lighter on tokens and easier to debug.
+- **No multi-user support** — One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
+- **No Windows/Linux cookie decryption** — macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
+- **No iframe support** — Playwright can handle iframes but the ref system doesn't cross frame boundaries yet. This is the most-requested missing feature.
+
+## Build Process
+
+```bash
+# Development
+bun install              # Install dependencies
+bun test                 # Run Tier 1 tests
+bun run dev goto https://example.com  # Run CLI in dev mode
+
+# Build
+bun run gen:skill-docs   # Generate SKILL.md from templates
+bun run build            # Compile browse binary
+
+# Validation
+bun run skill:check      # Health dashboard for all skills
+bun run test:eval        # Tier 3: LLM-as-judge evals (needs ANTHROPIC_API_KEY)
+bun run test:e2e         # Tier 2: E2E skill tests (needs SKILL_E2E=1, ~$0.50/run)
+```
+
+### What Happens on Build?
+
+1. **Generate SKILL.md** — `gen-skill-docs.ts` reads `commands.ts` + `snapshot.ts`, fills template placeholders, writes `SKILL.md`
+2. **Compile binary** — `bun build --compile` produces `browse/dist/browse` (~58MB)
+3. **Write version file** — `git rev-parse HEAD > browse/dist/.version`
+4. **Validate** — Run Tier 1 tests to ensure docs match code
+
+### Deployment to Active Skill
+
+The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+
+```bash
+# Push your branch
+git push origin feature-branch
+
+# Update global install
+cd ~/.claude/skills/gstack
+git fetch origin
+git reset --hard origin/main
+bun run build
+
+# Or copy binary directly (faster for binary-only changes)
+cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse
+```
+
+## Multi-Workspace Isolation
+
+Each Conductor workspace gets its own isolated browser instance:
+
+- **Separate Chromium process** per project
+- **Random port allocation** (10000-60000, no collisions)
+- **State stored in `.gstack/`** inside each project root
+- **No shared state** between workspaces
+
+You can run **10 parallel QA sessions** with zero configuration:
+
+```bash
+# Workspace 1 (project-a)
+Claude: /qa localhost:3000
+[browse daemon starts on port 12345]
+
+# Workspace 2 (project-b)
+Claude: /qa localhost:3001
+[browse daemon starts on port 23456]
+
+# ... 8 more workspaces, each with its own daemon
+```
+
+Total memory: ~1.5-2GB for all 10 instances.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Browser Automation" icon="browser" href="/concepts/browser-automation">
+    Deep dive into the persistent browser daemon
+  </Card>
+  <Card title="Workflow Modes" icon="brain" href="/concepts/workflow-modes">
+    CEO, Eng Manager, Review, Ship modes explained
+  </Card>
+  <Card title="Command Reference" icon="terminal" href="/commands/browse/overview">
+    Explore all browse commands
+  </Card>
+  <Card title="Contributing" icon="code" href="/guides/contributing">
+    How to contribute to gstack
+  </Card>
+</CardGroup>
