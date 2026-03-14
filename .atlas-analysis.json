@@ -1,0 +1,122 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "gstack",
+  "projectDescription": "Claude Code workflow automation toolkit with headless browser, QA testing, code review, and shipping workflows",
+  "theme": "aspen",
+  "primaryColor": "#141414",
+  "lightColor": "#da7656",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "installation", "quickstart"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": ["concepts/overview", "concepts/workflow-modes", "concepts/browser-automation", "concepts/architecture"]
+          },
+          {
+            "group": "Skills",
+            "pages": [
+              "skills/plan-ceo-review",
+              "skills/plan-eng-review",
+              "skills/review",
+              "skills/ship",
+              "skills/browse",
+              "skills/qa",
+              "skills/setup-browser-cookies",
+              "skills/retro"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Command Reference",
+        "groups": [
+          {
+            "group": "Browse Commands",
+            "pages": [
+              "commands/browse/overview",
+              "commands/browse/navigation",
+              "commands/browse/reading",
+              "commands/browse/interaction",
+              "commands/browse/inspection",
+              "commands/browse/visual",
+              "commands/browse/tabs"
+            ]
+          },
+          {
+            "group": "Workflow Commands",
+            "pages": [
+              "commands/qa",
+              "commands/ship",
+              "commands/review"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Workflows",
+            "pages": [
+              "guides/feature-workflow",
+              "guides/qa-testing",
+              "guides/code-review",
+              "guides/greptile-integration"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "guides/conductor",
+              "guides/project-install",
+              "guides/cookie-management"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "guides/troubleshooting",
+              "guides/upgrading",
+              "guides/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Persistent headless browser automation with Playwright",
+    "Eight opinionated workflow skills as slash commands",
+    "Diff-aware QA testing for feature branches",
+    "Automated code review with Greptile integration",
+    "One-command shipping workflow (sync, test, PR)",
+    "CEO and engineering plan review modes",
+    "Browser cookie import from Chrome/Arc/Brave/Edge",
+    "Engineering retrospectives with team metrics"
+  ],
+  "publicApiSurface": [
+    "/browse - Browser automation commands",
+    "/qa - QA testing workflow",
+    "/ship - Automated shipping workflow",
+    "/review - Code review workflow",
+    "/plan-ceo-review - Product review mode",
+    "/plan-eng-review - Engineering review mode",
+    "/retro - Retrospective analysis",
+    "/setup-browser-cookies - Cookie import",
+    "browse goto <url> - Navigate to URL",
+    "browse snapshot -i - Get accessibility tree with refs",
+    "browse click @ref - Click element by ref",
+    "browse fill @ref <value> - Fill input field",
+    "browse screenshot <path> - Take screenshot",
+    "browse text - Get page text content",
+    "browse console - Get console messages",
+    "browse network - Get network requests"
+  ]
+}
